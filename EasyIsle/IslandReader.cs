@@ -254,41 +254,53 @@ public sealed unsafe class IslandReader
         }
     }
 
+    /// <summary>
+    /// Expedition areas as the granary window lists them (only unlocked ones, names in the game's
+    /// language). Remembered once seen, since the window has to be open for the game to load them.
+    /// </summary>
     private void ReadDestinations(IslandSnapshot snap)
     {
-        // Unlocked areas: the granary window's list, remembered once seen.
         var agent = AgentMJIGatheringHouse.Instance();
-        if (agent != null && agent->Data != null && agent->Data->Initialized)
+        if (agent != null && agent->Data != null && agent->Data->Initialized && agent->Data->Expeditions.Count > 0)
         {
-            var seen = new List<int>();
-            foreach (var e in agent->Data->ExpeditionDescs.AsSpan())
-                if (e.ExpeditionId != 0) seen.Add(e.ExpeditionId);
-            if (seen.Count > 0 && !seen.SequenceEqual(config.UnlockedExpeditions))
+            var pouchByItem = new Dictionary<uint, uint>();
+            foreach (var row in Plugin.DataManager.GetExcelSheet<MJIItemPouch>())
+                if (row.RowId != 0 && row.Item.RowId != 0) pouchByItem.TryAdd(row.Item.RowId, row.RowId);
+
+            var seen = new List<Destination>();
+            foreach (var e in agent->Data->Expeditions.AsSpan())
             {
-                config.UnlockedExpeditions = seen;
+                if (e.ExpeditionId == 0) continue;
+                var d = new Destination
+                {
+                    Id = e.ExpeditionId,
+                    Name = e.Name.ToString(),
+                    RarePouchId = pouchByItem.GetValueOrDefault(e.RareItemId),
+                };
+                d.RareName = d.RarePouchId != 0 ? PouchName(d.RarePouchId) : string.Empty;
+                for (var i = 0; i < e.NumNormalItems && i < e.NormalItemIds.Length; i++)
+                    if (pouchByItem.TryGetValue(e.NormalItemIds[i], out var pouch) && !d.CommonPouchIds.Contains(pouch))
+                        d.CommonPouchIds.Add(pouch);
+                seen.Add(d);
+            }
+
+            var changed = seen.Count != config.KnownDestinations.Count
+                          || seen.Zip(config.KnownDestinations).Any(p => p.First.Id != p.Second.Id || p.First.Name != p.Second.Name
+                                                                        || p.First.RarePouchId != p.Second.RarePouchId
+                                                                        || !p.First.CommonPouchIds.SequenceEqual(p.Second.CommonPouchIds));
+            if (changed && seen.All(d => d.Name.Length > 0))
+            {
+                config.KnownDestinations = seen;
                 config.Save();
             }
         }
 
-        snap.DestinationsUnlockKnown = config.UnlockedExpeditions.Count > 0;
-        var areas = Plugin.DataManager.GetExcelSheet<MJIStockyardManagementArea>();
-        var table = Plugin.DataManager.GetSubrowExcelSheet<MJIStockyardManagementTable>();
-        foreach (var area in areas)
-        {
-            if (area.RowId == 0 || area.RareMaterial.RowId == 0) continue;
-            var d = new Destination
-            {
-                Id = (int)area.RowId,
-                Name = area.Area.ValueNullable?.Text.ExtractText() ?? $"Area {area.RowId}",
-                RarePouchId = area.RareMaterial.RowId,
-                RareName = PouchName(area.RareMaterial.RowId),
-                Unlocked = snap.DestinationsUnlockKnown ? config.UnlockedExpeditions.Contains((int)area.RowId) : snap.Rank >= 12 || area.RowId <= 5,
-            };
-            if (table.TryGetRow(area.RowId, out var rows))
-                foreach (var r in rows)
-                    if (r.Material.RowId != 0 && !d.CommonPouchIds.Contains(r.Material.RowId)) d.CommonPouchIds.Add(r.Material.RowId);
-            snap.Destinations.Add(d);
-        }
+        snap.DestinationsUnlockKnown = config.KnownDestinations.Count > 0;
+        snap.Destinations = config.KnownDestinations
+            .Select(d => new Destination { Id = d.Id, Name = d.Name, RarePouchId = d.RarePouchId, RareName = d.RareName, CommonPouchIds = [.. d.CommonPouchIds] })
+            .ToList();
+        foreach (var e in snap.Expeditions)
+            if (snap.Destinations.FirstOrDefault(d => d.Id == e.ExpeditionId) is { } d) e.Destination = d.Name;
     }
 
     private void ReadExpeditions(MJIManager* mgr, IslandSnapshot snap)
@@ -300,7 +312,6 @@ public sealed unsafe class IslandReader
             return;
         }
 
-        var areas = Plugin.DataManager.GetExcelSheet<MJIStockyardManagementArea>();
         for (var i = 0; i < MJIGranariesState.MaxGranaries; i++)
         {
             var g = state->Granary[i];
@@ -316,8 +327,7 @@ public sealed unsafe class IslandReader
             var waiting = g.RareResourceCount;
             foreach (var n in g.NormalResourceCounts) waiting += n;
             exp.WaitingToCollect = waiting;
-            if (areas.GetRowOrDefault(g.ActiveExpeditionId) is { } area)
-                exp.Destination = area.Area.ValueNullable?.Text.ExtractText() ?? string.Empty;
+            exp.Destination = g.ActiveExpeditionId == 0 ? string.Empty : $"area {g.ActiveExpeditionId}"; // named in ReadDestinations
             snap.Expeditions.Add(exp);
         }
     }

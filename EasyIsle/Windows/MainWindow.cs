@@ -208,17 +208,21 @@ public sealed class MainWindow : Window
 
     private void DrawGranaryAdvice()
     {
-        if (plugin.Granary is not { } g || g.advice.Count == 0) return;
+        if (plugin.Granary is not { } g) return;
         ImGui.Spacing();
         if (!ImGui.CollapsingHeader("Granary expeditions###granary", ImGuiTreeNodeFlags.DefaultOpen)) return;
+        if (g.advice.Count == 0)
+        {
+            ImGui.TextColored(Muted, "Open a granary's expedition window once (Select Terrain) so EasyIsle can see your expedition areas.");
+            return;
+        }
+
         foreach (var a in g.advice)
         {
             ImGui.TextUnformatted($"Granary {a.Granary}: {a.Action}");
             ImGui.TextColored(Muted, "    " + a.Reason);
         }
 
-        if (plugin.Snapshot is { DestinationsUnlockKnown: false })
-            ImGui.TextColored(Muted, "Open a granary's expedition window once so EasyIsle knows which areas you've unlocked.");
 
         if (!ImGui.BeginTable("##rares", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders)) return;
         ImGui.TableSetupColumn("Rare material");
