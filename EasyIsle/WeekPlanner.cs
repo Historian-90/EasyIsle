@@ -178,7 +178,7 @@ public sealed class WeekPlanner
             if (!restFuture.Contains(weakest.cycle) && gain > 300)
             {
                 var moveFrom = restFuture.OrderByDescending(r => dayValues.First(d => d.cycle == r).value).First();
-                plan.RestAdvice = $"Resting cycle {weakest.cycle + 1} instead of cycle {moveFrom + 1} would earn about {gain:N0} more this week, if the game lets you change this season's rest days.";
+                plan.RestAdvice = $"Rest on cycle {weakest.cycle + 1} instead of cycle {moveFrom + 1}: about {gain:N0} more this week. In the agenda's Rest Cycle Settings, swap {moveFrom + 1} for {weakest.cycle + 1} (current season) before cycle {weakest.cycle + 1} starts.";
             }
         }
 
