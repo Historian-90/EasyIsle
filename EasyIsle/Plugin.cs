@@ -20,6 +20,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
+    [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
+    [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
 
     private const string Command = "/easyisle";
     private const string ShortCommand = "/ei";
@@ -96,6 +98,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public WeekPlan? Week { get; private set; }
     public (List<GranaryAdvice> advice, List<RareStock> rares)? Granary { get; private set; }
+    public CropPlan? Crops { get; private set; }
     public Dictionary<uint, Forecast> Forecasts { get; private set; } = [];
     public bool Planning { get; private set; }
 
@@ -127,6 +130,7 @@ public sealed class Plugin : IDalamudPlugin
             PrioritizeFavors = Configuration.PrioritizeFavors,
         };
         var gather = Gatherable;
+        var feedChoice = Configuration.FeedPouchId;
         System.Threading.Tasks.Task.Run(() =>
         {
             try
@@ -136,6 +140,7 @@ public sealed class Plugin : IDalamudPlugin
                 Forecasts = forecasts;
                 Week = week;
                 Granary = GranaryAdvisor.Advise(copy, week);
+                Crops = CropAdvisor.Advise(copy, week, feedChoice);
             }
             catch (Exception ex)
             {
@@ -163,6 +168,8 @@ public sealed class Plugin : IDalamudPlugin
         foreach (var f in s.Favors) sb.Append(f.Delivered).Append(f.Scheduled);
         foreach (var e in s.Expeditions) sb.Append(e.ExpeditionId).Append(e.DaysRemaining);
         foreach (var d in s.Destinations) sb.Append(d.Unlocked ? 'y' : 'n');
+        foreach (var f in s.FarmPlots) sb.Append(f.SeedRow).Append(':').Append(f.Yield).Append(f.CareHalted ? 'h' : '-').Append(f.Position != null ? 'p' : '-');
+        sb.Append('|').Append(s.Animals.Count).Append('|').Append(Configuration.FeedPouchId);
         foreach (var season in s.SupplyHistory) sb.Append(season.Key).Append(season.Value.Count);
         return sb.ToString();
     }

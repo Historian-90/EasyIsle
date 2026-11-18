@@ -55,6 +55,9 @@ public class IslandSnapshot
     /// <summary>True when the unlocked areas were read from the game (granary window opened at least once).</summary>
     public bool DestinationsUnlockKnown { get; set; }
     public List<FarmPlot> FarmPlots { get; set; } = [];
+
+    /// <summary>Recipes that turn produce into animal feed.</summary>
+    public List<FeedRecipe> FeedRecipes { get; set; } = [];
     public List<Animal> Animals { get; set; } = [];
     public List<Favor> Favors { get; set; } = [];
 
@@ -123,6 +126,13 @@ public class PouchItem
     public string Category { get; set; } = string.Empty;
     public int Count { get; set; }
     public bool Discovered { get; set; }
+    public uint Icon { get; set; }
+
+    /// <summary>MJICropSeed row for produce and seeds (0 for everything else).</summary>
+    public uint CropRow { get; set; }
+
+    /// <summary>True for produce (grown on the cropland), false for its seeds.</summary>
+    public bool IsProduce { get; set; }
 }
 
 [Serializable]
@@ -144,10 +154,34 @@ public class FarmPlot
     public int Slot { get; set; }
     public uint SeedRow { get; set; }
     public string Crop { get; set; } = string.Empty;
+
+    /// <summary>Isleventory row of the produce this plot grows (0 = empty).</summary>
+    public uint CropPouchId { get; set; }
+
+    /// <summary>Isleventory row of the seeds it uses.</summary>
+    public uint SeedPouchId { get; set; }
+
     public int Growth { get; set; }
     public int Water { get; set; }
+
+    /// <summary>Produce the gardener is holding for this plot (it stops at 50).</summary>
     public int Yield { get; set; }
+
     public bool UnderCare { get; set; }
+    public bool CareHalted { get; set; }
+
+    /// <summary>World position (x, z) of the plot, when known.</summary>
+    public float[]? Position { get; set; }
+}
+
+[Serializable]
+public class FeedRecipe
+{
+    public uint OutputPouchId { get; set; }
+    public string OutputName { get; set; } = string.Empty;
+    public int Yield { get; set; }
+    public int Order { get; set; }
+    public List<Ingredient> Materials { get; set; } = [];
 }
 
 [Serializable]

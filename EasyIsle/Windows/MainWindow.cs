@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
@@ -83,6 +84,7 @@ public sealed class MainWindow : Window
         ImGui.Separator();
         if (!ImGui.BeginTabBar("##tabs")) return;
         Tab("Plan", DrawPlan);
+        Tab("Cropland", DrawCropland);
         Tab("Island", () => DrawIsland(s));
         Tab($"Crafts ({s.Crafts.Count(c => c.Available)})", () => DrawCrafts(s));
         Tab("Isleventory", () => DrawIsleventory(s));
@@ -203,6 +205,213 @@ public sealed class MainWindow : Window
             ImGui.TextColored(Warn, "Gather for this week's plan:");
             foreach (var sf in plan.Shortfalls)
                 ImGui.BulletText($"{sf.Need - sf.Have} {sf.Name} (have {sf.Have}, plan uses {sf.Need})" + (sf.Gatherable ? string.Empty : " - not gatherable!"));
+        }
+    }
+
+    private bool showAllCrops;
+
+    private static void Icon(uint icon, float size)
+    {
+        if (icon == 0)
+        {
+            ImGui.Dummy(new Vector2(size));
+            return;
+        }
+
+        var tex = Plugin.TextureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(icon)).GetWrapOrEmpty();
+        ImGui.Image(tex.Handle, new Vector2(size));
+    }
+
+    private void DrawCropland()
+    {
+        var plan = plugin.Crops;
+        var snap = plugin.Snapshot;
+        if (plan == null || snap == null || snap.FarmPlots.Count == 0)
+        {
+            ImGui.TextColored(Muted, plugin.Planning ? "Working it out..." : "Cropland data loads on your island. Open your Isleventory once too, so EasyIsle knows your produce and seeds.");
+            return;
+        }
+
+        foreach (var a in plan.Alerts) ImGui.TextColored(Warn, a);
+        if (plan.Alerts.Count > 0) ImGui.Spacing();
+
+        DrawPlotGrid(plan, snap);
+
+        var changes = plan.Plots.Where(p => p.Change).ToList();
+        ImGui.Spacing();
+        if (changes.Count == 0)
+        {
+            ImGui.TextColored(Good, "Every plot is growing what it should. Nothing to replant.");
+        }
+        else
+        {
+            ImGui.TextUnformatted($"Replant {changes.Count} plot(s) (dismiss the gardener, plant, then entrust again):");
+            foreach (var c in changes)
+            {
+                ImGui.TextUnformatted($"  Plot {c.Slot}:");
+                ImGui.SameLine();
+                ImGui.TextColored(Muted, c.Plot.CropPouchId == 0 ? "empty" : c.Plot.Crop);
+                ImGui.SameLine();
+                ImGui.TextUnformatted("->");
+                ImGui.SameLine();
+                Icon(c.Recommended!.Icon, ImGui.GetTextLineHeight());
+                ImGui.SameLine();
+                ImGui.TextUnformatted(c.Recommended.Name);
+            }
+        }
+
+        ImGui.Spacing();
+        DrawFeed(plan, snap);
+
+        ImGui.Spacing();
+        ImGui.Checkbox("Show every crop", ref showAllCrops);
+        if (!ImGui.BeginTable("##crops", 8, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders)) return;
+        ImGui.TableSetupColumn("Crop");
+        ImGui.TableSetupColumn("On hand", ImGuiTableColumnFlags.WidthFixed, 60);
+        ImGui.TableSetupColumn("With gardener", ImGuiTableColumnFlags.WidthFixed, 95);
+        ImGui.TableSetupColumn("Workshops / wk", ImGuiTableColumnFlags.WidthFixed, 105);
+        ImGui.TableSetupColumn("Feed / wk", ImGuiTableColumnFlags.WidthFixed, 70);
+        ImGui.TableSetupColumn("Lasts", ImGuiTableColumnFlags.WidthFixed, 95);
+        ImGui.TableSetupColumn("Plots now > best", ImGuiTableColumnFlags.WidthFixed, 110);
+        ImGui.TableSetupColumn("Seeds", ImGuiTableColumnFlags.WidthFixed, 50);
+        ImGui.TableHeadersRow();
+        foreach (var n in plan.Needs.OrderBy(n => n.WeeksLeft ?? double.MaxValue))
+        {
+            if (!showAllCrops && n.PlotsNow == 0 && n.PlotsRecommended == 0 && n.PerWeek < 0.5) continue;
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            Icon(n.Icon, ImGui.GetTextLineHeight());
+            ImGui.SameLine();
+            ImGui.TextUnformatted(n.Name);
+            Cell(n.Stock.ToString());
+            Cell(n.Waiting > 0 ? n.Waiting.ToString() : "-");
+            Cell(n.WorkshopPerWeek >= 0.5 ? n.WorkshopPerWeek.ToString("0") : "-");
+            Cell(n.FeedPerWeek >= 0.5 ? n.FeedPerWeek.ToString("0") : "-");
+            Cell(n.WeeksLeft is { } w ? (w < 1 ? "under a week" : $"{w:0.#} weeks") : "-");
+            Cell(n.PlotsNow == n.PlotsRecommended ? n.PlotsNow.ToString() : $"{n.PlotsNow} > {n.PlotsRecommended}");
+            Cell(n.Seeds.ToString());
+        }
+
+        ImGui.EndTable();
+    }
+
+    private void DrawPlotGrid(CropPlan plan, IslandSnapshot snap)
+    {
+        const float cell = 52f;
+        const float gap = 6f;
+        var plots = plan.Plots;
+        var placed = plots.All(p => p.Plot.Position != null);
+
+        // Lay plots out as they sit on the island (north up), or in a simple grid until positions are known.
+        var spots = new Dictionary<int, Vector2>();
+        Vector2 area;
+        if (placed)
+        {
+            // Group plots into rows by their north-south position, then order each row west to east,
+            // so the grid has the island's shape without plots overlapping.
+            var rows = new List<List<PlotAdvice>>();
+            foreach (var p in plots.OrderBy(p => p.Plot.Position![1]))
+            {
+                if (rows.Count == 0 || p.Plot.Position![1] - rows[^1][0].Plot.Position![1] > 1.5f) rows.Add([]);
+                rows[^1].Add(p);
+            }
+
+            var minX = plots.Min(p => p.Plot.Position![0]);
+            var maxX = plots.Max(p => p.Plot.Position![0]);
+            var maxCols = rows.Max(r => r.Count);
+            for (var r = 0; r < rows.Count; r++)
+            {
+                var row = rows[r].OrderBy(p => p.Plot.Position![0]).ToList();
+                // Shift short rows to roughly where they start on the island.
+                var startCol = maxX > minX ? (int)Math.Round((row[0].Plot.Position![0] - minX) / (maxX - minX) * (maxCols - row.Count)) : 0;
+                for (var c = 0; c < row.Count; c++)
+                    spots[row[c].Slot] = new Vector2((startCol + c) * (cell + gap), r * (cell + gap));
+            }
+
+            area = new Vector2(maxCols * (cell + gap), rows.Count * (cell + gap));
+        }
+        else
+        {
+            const int cols = 5;
+            for (var i = 0; i < plots.Count; i++)
+                spots[plots[i].Slot] = new Vector2(i % cols * (cell + gap), i / cols * (cell + gap));
+            area = new Vector2(cols * (cell + gap), (plots.Count + cols - 1) / cols * (cell + gap));
+        }
+
+        var origin = ImGui.GetCursorScreenPos();
+        var draw = ImGui.GetWindowDrawList();
+        foreach (var a in plots)
+        {
+            var min = origin + spots[a.Slot];
+            var max = min + new Vector2(cell);
+            var bg = a.Plot.CropPouchId == 0 ? new Vector4(0.25f, 0.2f, 0.15f, 1f)
+                : a.Change ? new Vector4(0.45f, 0.3f, 0.1f, 1f)
+                : new Vector4(0.15f, 0.3f, 0.15f, 1f);
+            draw.AddRectFilled(min, max, ImGui.GetColorU32(bg), 4f);
+            var icon = snap.Isleventory.FirstOrDefault(p => p.PouchId == a.Plot.CropPouchId)?.Icon ?? 0;
+            if (icon != 0)
+            {
+                var tex = Plugin.TextureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(icon)).GetWrapOrEmpty();
+                draw.AddImage(tex.Handle, min + new Vector2(8, 8), max - new Vector2(8, 8));
+            }
+
+            draw.AddText(min + new Vector2(3, 1), ImGui.GetColorU32(new Vector4(1, 1, 1, 1)), a.Slot.ToString());
+            if (a.Plot.Yield > 0)
+            {
+                var t = a.Plot.Yield.ToString();
+                var size = ImGui.CalcTextSize(t);
+                draw.AddText(max - size - new Vector2(3, 1), ImGui.GetColorU32(a.Plot.Yield >= 50 ? Warn : Good), t);
+            }
+
+            if (a.Change)
+                draw.AddRect(min, max, ImGui.GetColorU32(Warn), 4f, ImDrawFlags.None, 2f);
+
+            ImGui.SetCursorScreenPos(min);
+            ImGui.InvisibleButton($"##plot{a.Slot}", new Vector2(cell));
+            if (ImGui.IsItemHovered())
+            {
+                var text = $"Plot {a.Slot}: {(a.Plot.CropPouchId == 0 ? "empty" : a.Plot.Crop)}";
+                if (a.Plot.CropPouchId != 0) text += $"\nGrowth {a.Plot.Growth}, water {a.Plot.Water}";
+                text += a.Plot.UnderCare ? "\nGardener: tending" : a.Plot.CareHalted ? "\nGardener: stopped" : "\nGardener: not entrusted";
+                if (a.Plot.Yield > 0) text += $"\nWaiting with the gardener: {a.Plot.Yield}";
+                if (a.Change) text += $"\nReplant with {a.Recommended!.Name}";
+                ImGui.SetTooltip(text);
+            }
+        }
+
+        ImGui.SetCursorScreenPos(origin + new Vector2(0, area.Y + gap));
+        ImGui.TextColored(Muted, placed
+            ? "Laid out as on your island (north up). Orange border = replant. Number in the corner = produce waiting with the gardener."
+            : "Walk past your cropland once so EasyIsle can lay the plots out as they sit on your island.");
+    }
+
+    private void DrawFeed(CropPlan plan, IslandSnapshot snap)
+    {
+        ImGui.TextUnformatted($"Pasture: {plan.Animals} animal(s)");
+        if (snap.FeedRecipes.Count == 0) return;
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(220);
+        var current = plan.Feed?.OutputName ?? "-";
+        if (ImGui.BeginCombo("Feed##feed", current))
+        {
+            foreach (var r in snap.FeedRecipes.OrderByDescending(r => r.Order))
+            {
+                if (ImGui.Selectable(r.OutputName, r.OutputPouchId == plan.Feed?.OutputPouchId))
+                {
+                    plugin.Configuration.FeedPouchId = r.OutputPouchId;
+                    plugin.Configuration.Save();
+                    plugin.Replan(true);
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        if (plan.Feed != null && plan.Animals > 0)
+        {
+            var crafts = plan.FeedPerWeek / plan.Feed.Yield;
+            var mats = string.Join(", ", plan.Feed.Materials.Select(m => $"{m.Amount * crafts:0} {m.Name}"));
+            ImGui.TextColored(Muted, $"About {plan.FeedPerWeek:0} {plan.Feed.OutputName} a week (one per animal per day) takes {mats}. The crop split above includes it.");
         }
     }
 

@@ -60,6 +60,7 @@ public sealed unsafe class IslandReader
         ReadExpeditions(mgr, snap);
         ReadDestinations(snap);
         ReadFarm(mgr, snap);
+        ReadFeedRecipes(snap);
         ReadPasture(mgr, snap);
         ReadFavors(mgr, snap);
         ReadSchedule(snap);
@@ -248,6 +249,9 @@ public sealed unsafe class IslandReader
                 ItemId = row.Item.RowId,
                 Name = Name(row.Item.ValueNullable),
                 Category = row.Category.ValueNullable?.Singular.ExtractText() ?? string.Empty,
+                Icon = row.Item.ValueNullable?.Icon ?? 0,
+                CropRow = row.Crop.RowId,
+                IsProduce = row.Crop.RowId != 0 && row.Crop.ValueNullable?.Item.RowId != row.Item.RowId,
                 Count = counts.TryGetValue(row.RowId, out var c) ? c : 0,
                 Discovered = !mgr->IsPouchItemLocked((ushort)row.RowId),
             });
@@ -341,28 +345,74 @@ public sealed unsafe class IslandReader
             return;
         }
 
-        var pouch = Plugin.DataManager.GetExcelSheet<MJIItemPouch>();
         var slots = Math.Min((int)mgr->GetFarmSlotCount(), farm->SeedType.Length);
+        var positionsChanged = false;
         for (var i = 0; i < slots; i++)
         {
             var seed = farm->SeedType[i];
-            var crop = string.Empty;
-            if (seed != 0)
-            {
-                var produce = pouch.FirstOrDefault(p => p.Crop.RowId == seed && p.Item.RowId != 0);
-                crop = produce.RowId != 0 ? Name(produce.Item.ValueNullable) : $"seed #{seed}";
-            }
-
-            snap.FarmPlots.Add(new FarmPlot
+            var plot = new FarmPlot
             {
                 Slot = i + 1,
                 SeedRow = seed,
-                Crop = crop,
                 Growth = farm->GrowthLevel[i],
                 Water = farm->WaterLevel[i],
                 Yield = farm->GardenerYield[i],
                 UnderCare = farm->FarmSlotFlags[i].HasFlag(FarmSlotFlags.UnderCare),
-            });
+                CareHalted = farm->FarmSlotFlags[i].HasFlag(FarmSlotFlags.CareHalted),
+            };
+            if (seed != 0)
+            {
+                var produce = snap.Isleventory.FirstOrDefault(p => p.CropRow == seed && p.IsProduce);
+                var seeds = snap.Isleventory.FirstOrDefault(p => p.CropRow == seed && !p.IsProduce);
+                plot.CropPouchId = produce?.PouchId ?? 0;
+                plot.SeedPouchId = seeds?.PouchId ?? 0;
+                plot.Crop = produce?.Name ?? $"seed #{seed}";
+            }
+
+            // Where the plot is: its object in the object table (loaded while you're near the farm).
+            var index = (int)farm->PlotObjectIndex[i];
+            var obj = index > 0 && index < Plugin.ObjectTable.Length ? Plugin.ObjectTable[index] : null;
+            if (obj != null)
+            {
+                var pos = new[] { obj.Position.X, obj.Position.Z };
+                if (!config.PlotPositions.TryGetValue(i + 1, out var old) || Math.Abs(old[0] - pos[0]) > 0.5f || Math.Abs(old[1] - pos[1]) > 0.5f)
+                {
+                    config.PlotPositions[i + 1] = pos;
+                    positionsChanged = true;
+                }
+            }
+
+            plot.Position = config.PlotPositions.TryGetValue(i + 1, out var p2) ? p2 : null;
+            snap.FarmPlots.Add(plot);
+        }
+
+        if (positionsChanged) config.Save();
+    }
+
+    private void ReadFeedRecipes(IslandSnapshot snap)
+    {
+        var byPouch = snap.Isleventory.ToDictionary(p => p.PouchId);
+        foreach (var r in Plugin.DataManager.GetExcelSheet<MJIRecipe>())
+        {
+            if (r.RowId == 0 || r.ItemPouch.RowId == 0) continue;
+            var recipe = new FeedRecipe
+            {
+                OutputPouchId = r.ItemPouch.RowId,
+                OutputName = byPouch.TryGetValue(r.ItemPouch.RowId, out var o) ? o.Name : PouchName(r.ItemPouch.RowId),
+                Yield = Math.Max(1, (int)r.Yield),
+                Order = r.Order,
+            };
+            for (var i = 0; i < r.Material.Count; i++)
+            {
+                var mat = r.Material[i].ValueNullable?.ItemPouch.RowId ?? 0;
+                var amount = i < r.Amount.Count ? r.Amount[i] : 0;
+                if (mat == 0 || amount == 0) continue;
+                recipe.Materials.Add(new Ingredient { PouchId = mat, Name = byPouch.TryGetValue(mat, out var m) ? m.Name : PouchName(mat), Amount = amount });
+            }
+
+            // Feed is the recipe family that's made from produce.
+            if (recipe.Materials.Any(m => byPouch.TryGetValue(m.PouchId, out var p) && p.IsProduce))
+                snap.FeedRecipes.Add(recipe);
         }
     }
 
