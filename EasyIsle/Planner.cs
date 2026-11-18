@@ -96,7 +96,7 @@ public static class Planner
         var favorNeed = new Dictionary<uint, int>();
         if (options.PrioritizeFavors)
         {
-            foreach (var f in s.Favors.Where(f => !f.Shipped))
+            foreach (var f in s.Favors.Where(f => f.Season == "Current" && !f.Shipped))
             {
                 var need = f.Required - f.Delivered - f.Scheduled;
                 if (need <= 0) continue;

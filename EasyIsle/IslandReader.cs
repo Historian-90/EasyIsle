@@ -363,6 +363,7 @@ public sealed unsafe class IslandReader
             snap.Favors.Add(new Favor
             {
                 Hours = hours,
+                Season = (i / 3) switch { 0 => "Last", 1 => "Current", _ => "Next" },
                 Required = hours == 6 ? 6 : 8,
                 Index = i,
                 CraftId = id,

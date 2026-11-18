@@ -169,6 +169,9 @@ public class Favor
     public bool Bonus { get; set; }
     public int Hours { get; set; }
 
+    /// <summary>"Last", "Current" or "Next" season: the 9 slots are 3 seasons of 3 requests.</summary>
+    public string Season { get; set; } = string.Empty;
+
     /// <summary>Items the request asks for: 8 for 4 h and 8 h crafts, 6 for 6 h crafts.</summary>
     public int Required { get; set; }
 }

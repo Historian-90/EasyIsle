@@ -87,7 +87,7 @@ public sealed class MainWindow : Window
         Tab($"Crafts ({s.Crafts.Count(c => c.Available)})", () => DrawCrafts(s));
         Tab("Isleventory", () => DrawIsleventory(s));
         Tab("Granary, crops, animals", () => DrawProduce(s));
-        Tab($"Favors ({s.Favors.Count})", () => DrawFavors(s));
+        Tab("Favors", () => DrawFavors(s));
         Tab("Agenda", () => DrawAgenda(s));
         ImGui.EndTabBar();
     }
@@ -338,10 +338,17 @@ public sealed class MainWindow : Window
             return;
         }
 
-        foreach (var f in s.Favors)
+        foreach (var season in new[] { "Current", "Next", "Last" })
         {
-            Row($"Favor {f.Index + 1}", $"{f.Name}: delivered {f.Delivered}, scheduled {f.Scheduled}"
-                                       + (f.Shipped ? ", shipped" : string.Empty) + (f.Bonus ? ", bonus" : string.Empty));
+            var list = s.Favors.Where(f => f.Season == season).ToList();
+            if (list.Count == 0) continue;
+            ImGui.Spacing();
+            ImGui.TextUnformatted(season + " season");
+            foreach (var f in list)
+            {
+                ImGui.BulletText($"{f.Name}: shipped {f.Delivered}/{f.Required}, scheduled {f.Scheduled}"
+                                   + (f.Shipped ? ", done" : string.Empty) + (f.Bonus ? ", bonus" : string.Empty));
+            }
         }
     }
 
