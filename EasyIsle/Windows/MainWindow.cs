@@ -306,8 +306,8 @@ public sealed class MainWindow : Window
         const float gap = 6f;
         var plots = plan.Plots;
 
-        // Same order as the island: walking up from the bottom right, plot 1 is the bottom-right
-        // plot, rows of five snake back and forth upward, and plot 20 is top right.
+        // Same order as the island: the path up the steps is on the right, so every row of five
+        // counts right to left: plot 1 bottom right, plot 5 bottom left, ... plot 20 top left.
         const int cols = 5;
         var rowCount = (plots.Count + cols - 1) / cols;
         var spots = new Dictionary<int, Vector2>();
@@ -315,7 +315,7 @@ public sealed class MainWindow : Window
         {
             var row = (p.Slot - 1) / cols;
             var k = (p.Slot - 1) % cols;
-            var col = row % 2 == 0 ? cols - 1 - k : k;
+            var col = cols - 1 - k;
             spots[p.Slot] = new Vector2(col * (cell + gap), (rowCount - 1 - row) * (cell + gap));
         }
 
