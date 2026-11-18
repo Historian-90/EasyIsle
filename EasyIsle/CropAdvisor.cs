@@ -211,7 +211,7 @@ public static class CropAdvisor
 /// <summary>
 /// Where each cropland plot sits, as checked in game (CJ, with the gardener's plot numbers): the
 /// bottom three rows count right to left (1-5, 6-10, 11-15), but the top row loops back and counts
-/// left to right (16-20). The path up the terraces is on the right, so you walk each row right to left.
+/// left to right (16-20). Planting runs follow the plot numbers.
 /// </summary>
 public static class PlotLayout
 {
@@ -226,6 +226,6 @@ public static class PlotLayout
         return Row(slot) == 3 ? k : Columns - 1 - k;
     }
 
-    /// <summary>Order you pass the plots in: bottom row first, each row from the right.</summary>
-    public static int WalkOrder(int slot) => Row(slot) * Columns + (Columns - 1 - Column(slot));
+    /// <summary>Order you plant in: plot number order (1 to 20).</summary>
+    public static int WalkOrder(int slot) => slot;
 }
