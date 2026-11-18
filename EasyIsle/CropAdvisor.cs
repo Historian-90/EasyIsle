@@ -40,6 +40,9 @@ public class CropPlan
     public FeedRecipe? Feed { get; set; }
     public int Animals { get; set; }
     public double FeedPerWeek { get; set; }
+
+    /// <summary>How many crops the week plan's workshops use (for the "why" line).</summary>
+    public int CropsUsedByPlan { get; set; }
 }
 
 /// <summary>
@@ -60,15 +63,22 @@ public static class CropAdvisor
     public static CropPlan Advise(IslandSnapshot s, WeekPlan? week, uint feedChoice)
     {
         var plan = new CropPlan();
-        var produce = s.Isleventory.Where(p => p.IsProduce && p.Discovered).ToList();
+        var seedsByCrop = s.Isleventory.Where(p => !p.IsProduce && p.CropRow != 0).GroupBy(p => p.CropRow).ToDictionary(g => g.Key, g => g.First());
+
+        // A crop counts once you've grown it or have its seeds (a crop never harvested shows as
+        // undiscovered, but its seeds can still be planted).
+        var produce = s.Isleventory
+            .Where(p => p.IsProduce && (p.Discovered || (seedsByCrop.TryGetValue(p.CropRow, out var sd) && sd.Count > 0)))
+            .ToList();
         if (produce.Count == 0 || s.FarmPlots.Count == 0) return plan;
-        var seedsByCrop = s.Isleventory.Where(p => !p.IsProduce && p.CropRow != 0).ToDictionary(p => p.CropRow);
 
         // Workshop demand from the week plan, scaled to a full 5-cycle week.
         var workshop = new Dictionary<uint, double>();
         if (week != null && week.Days.Count > 0)
             foreach (var (id, amount) in week.MaterialUse)
                 workshop[id] = amount * 5.0 / week.Days.Count;
+
+        plan.CropsUsedByPlan = workshop.Keys.Count(id => s.Isleventory.Any(p => p.PouchId == id && p.IsProduce));
 
         // Feed: the chosen recipe (or the last one in the game's order, the premium feed).
         plan.Animals = s.Animals.Count;

@@ -367,6 +367,7 @@ public sealed class MainWindow : Window
 
     private void DrawFeed(CropPlan plan, IslandSnapshot snap)
     {
+        ImGui.TextColored(Muted, $"Demand comes from this week's plan ({plan.CropsUsedByPlan} crop(s) used by your workshops) and your feed ({snap.FeedRecipes.Count} feed recipe(s) found). Crops with no demand are planted lowest stock first.");
         ImGui.TextUnformatted($"Pasture: {plan.Animals} animal(s)");
         if (snap.FeedRecipes.Count == 0) return;
         ImGui.SameLine();
