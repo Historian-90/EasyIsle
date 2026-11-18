@@ -239,7 +239,8 @@ public sealed unsafe class IslandReader
             snap.Problems.Add("Isleventory counts aren't available yet: open your Isleventory once.");
         }
 
-        var counts = live ?? config.LastIsleventory;
+        var counts = new Dictionary<uint, int>(live ?? config.LastIsleventory);
+        ReadPastureWindow(sheet, counts, snap);
         var categoryOf = new Dictionary<uint, uint>();
         foreach (var row in sheet)
         {
@@ -259,6 +260,47 @@ public sealed unsafe class IslandReader
         }
 
         LinkProduce(snap, categoryOf);
+    }
+
+    /// <summary>
+    /// The Pasture Management window knows the current feed counts and which feed each animal's
+    /// caretaker uses, so feed made since the Isleventory was last opened shows up too.
+    /// </summary>
+    private void ReadPastureWindow(Lumina.Excel.ExcelSheet<MJIItemPouch> sheet, Dictionary<uint, int> counts, IslandSnapshot snap)
+    {
+        var agent = AgentMJIAnimalManagement.Instance();
+        if (agent == null || !agent->DataInitialized) return;
+        var pouchByItem = new Dictionary<uint, uint>();
+        foreach (var row in sheet)
+            if (row.RowId != 0 && row.Item.RowId != 0) pouchByItem.TryAdd(row.Item.RowId, row.RowId);
+
+        var changed = false;
+        foreach (var item in agent->ItemDescs.AsSpan())
+        {
+            if (!pouchByItem.TryGetValue(item.ItemId, out var pouch)) continue;
+            var count = (int)item.CountInInventory;
+            counts[pouch] = count;
+            if (!config.LastIsleventory.TryGetValue(pouch, out var old) || old != count)
+            {
+                config.LastIsleventory[pouch] = count;
+                changed = true;
+            }
+        }
+
+        // Feed in use: what most caretakers are given.
+        var inUse = agent->Slots.AsSpan().ToArray()
+            .Where(sl => sl.FoodItemId != 0)
+            .GroupBy(sl => sl.FoodItemId)
+            .OrderByDescending(g => g.Count())
+            .Select(g => g.Key)
+            .FirstOrDefault();
+        if (inUse != 0 && pouchByItem.TryGetValue(inUse, out var feedPouch) && config.FeedInUse != feedPouch)
+        {
+            config.FeedInUse = feedPouch;
+            changed = true;
+        }
+
+        if (changed) config.Save();
     }
 
     /// <summary>

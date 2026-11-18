@@ -26,6 +26,9 @@ public class Configuration : IPluginConfiguration
     /// <summary>Feed the pasture uses (isleventory row of the feed); 0 = let EasyIsle pick.</summary>
     public uint FeedPouchId { get; set; }
 
+    /// <summary>Feed the caretakers were last seen using (from the Pasture Management window).</summary>
+    public uint FeedInUse { get; set; }
+
     /// <summary>Today's week plan, kept so it doesn't change under you.</summary>
     public WeekLock? WeekLock { get; set; }
 

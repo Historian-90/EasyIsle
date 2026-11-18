@@ -130,7 +130,7 @@ public sealed class Plugin : IDalamudPlugin
             PrioritizeFavors = Configuration.PrioritizeFavors,
         };
         var gather = Gatherable;
-        var feedChoice = Configuration.FeedPouchId;
+        var feedChoice = Configuration.FeedPouchId != 0 ? Configuration.FeedPouchId : Configuration.FeedInUse;
         var savedWeek = Configuration.WeekLock;
         var savedCrops = new Dictionary<int, uint>(Configuration.CropLock);
         var season = IslandReader.SeasonStartUtc(DateTime.UtcNow).ToString("yyyy-MM-dd");
@@ -201,7 +201,7 @@ public sealed class Plugin : IDalamudPlugin
         foreach (var e in s.Expeditions) sb.Append(e.ExpeditionId).Append(e.DaysRemaining);
         foreach (var d in s.Destinations) sb.Append(d.Unlocked ? 'y' : 'n');
         foreach (var f in s.FarmPlots) sb.Append(f.SeedRow).Append(':').Append(f.Yield).Append(f.CareHalted ? 'h' : '-').Append(f.UnderCare ? 'c' : '-');
-        sb.Append('|').Append(s.Animals.Count).Append('|').Append(Configuration.FeedPouchId);
+        sb.Append('|').Append(s.Animals.Count).Append('|').Append(Configuration.FeedPouchId).Append(Configuration.FeedInUse);
         foreach (var season in s.SupplyHistory) sb.Append(season.Key).Append(season.Value.Count);
         return sb.ToString();
     }
