@@ -180,6 +180,15 @@ public static class CropAdvisor
             pick.PlotsRecommended++;
         }
 
+        // Plant in runs: hand the plots that need planting out in walking order, one crop after
+        // another, so each seed covers neighbouring plots and you only swap seeds a few times.
+        var toPlant = plan.Plots.Where(a => a.Change).OrderBy(a => PlotLayout.WalkOrder(a.Slot)).ToList();
+        var queue = toPlant.GroupBy(a => a.Recommended!.PouchId)
+            .OrderByDescending(g => g.Count())
+            .SelectMany(g => Enumerable.Repeat(g.First().Recommended!, g.Count()))
+            .ToList();
+        for (var i = 0; i < toPlant.Count; i++) toPlant[i].Recommended = queue[i];
+
         // Things to do now.
         var waiting = s.FarmPlots.Sum(f => f.Yield);
         var full = s.FarmPlots.Count(f => f.Yield >= 50);
@@ -197,4 +206,26 @@ public static class CropAdvisor
 
         return plan;
     }
+}
+
+/// <summary>
+/// Where each cropland plot sits, as checked in game (CJ, with the gardener's plot numbers): the
+/// bottom three rows count right to left (1-5, 6-10, 11-15), but the top row loops back and counts
+/// left to right (16-20). The path up the terraces is on the right, so you walk each row right to left.
+/// </summary>
+public static class PlotLayout
+{
+    public const int Columns = 5;
+
+    public static int Row(int slot) => (slot - 1) / Columns;
+
+    /// <summary>0 = leftmost column.</summary>
+    public static int Column(int slot)
+    {
+        var k = (slot - 1) % Columns;
+        return Row(slot) == 3 ? k : Columns - 1 - k;
+    }
+
+    /// <summary>Order you pass the plots in: bottom row first, each row from the right.</summary>
+    public static int WalkOrder(int slot) => Row(slot) * Columns + (Columns - 1 - Column(slot));
 }

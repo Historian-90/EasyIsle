@@ -257,7 +257,7 @@ public sealed class MainWindow : Window
                 : $"Plant or replant {changes.Count} plot(s) (if the gardener tends one, dismiss it first, then plant and entrust again):");
             ImGui.TextColored(Muted, "Crops your workshops or feed will run short of get plots first; the rest go to whatever you have least of.");
             // One seed at a time: group plots by what to plant. Hovering a group lights its plots up.
-            foreach (var g in changes.GroupBy(c => c.Recommended!.PouchId).OrderByDescending(g => g.Count()))
+            foreach (var g in changes.GroupBy(c => c.Recommended!.PouchId).OrderBy(g => g.Min(c => PlotLayout.WalkOrder(c.Slot))))
             {
                 var crop = g.First().Recommended!;
                 ImGui.TextUnformatted("  ");
@@ -266,7 +266,7 @@ public sealed class MainWindow : Window
                 ImGui.SameLine();
                 ImGui.TextUnformatted($"{crop.Name} ({g.Count()}):");
                 ImGui.SameLine();
-                ImGui.TextUnformatted("plots " + string.Join(", ", g.Select(c => c.Slot).OrderBy(x => x)));
+                ImGui.TextUnformatted("plots " + string.Join(", ", g.Select(c => c.Slot).OrderBy(PlotLayout.WalkOrder)));
                 if (ImGui.IsItemHovered()) nextHighlight = crop.PouchId;
                 var replacing = g.Where(c => c.Plot.CropPouchId != 0).ToList();
                 if (replacing.Count > 0)
@@ -315,17 +315,14 @@ public sealed class MainWindow : Window
         const float gap = 6f;
         var plots = plan.Plots;
 
-        // The game's numbering snakes up the terraces: plot 1 bottom right, the bottom row runs
-        // right to left, the next row back left to right, and so on (plot 20 top right). Checked in
-        // game: plot 19 is second from the right on the top row.
+        // Plot positions as checked in game (see PlotLayout).
         const int cols = 5;
         var rowCount = (plots.Count + cols - 1) / cols;
         var spots = new Dictionary<int, Vector2>();
         foreach (var p in plots)
         {
-            var row = (p.Slot - 1) / cols;
-            var k = (p.Slot - 1) % cols;
-            var col = row % 2 == 0 ? cols - 1 - k : k;
+            var row = PlotLayout.Row(p.Slot);
+            var col = PlotLayout.Column(p.Slot);
             spots[p.Slot] = new Vector2(col * (cell + gap), (rowCount - 1 - row) * (cell + gap));
         }
 
