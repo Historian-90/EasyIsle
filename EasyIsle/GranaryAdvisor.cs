@@ -25,13 +25,12 @@ public class RareStock
 /// <summary>
 /// Picks granary expeditions from what the week plan uses and what's running low. Rare materials
 /// (only from expeditions) count most; common ones can be gathered, so they count a little.
-/// Each granary returns its area's rare material every day (6 a day at Granary V) and up to 24 of
+/// Each granary returns its area's rare material every day (2 a day at Granary I up to 6 at Granary V) and up to 24 of
 /// each common material; expeditions cost 50 cowries a day for up to 7 days.
 /// </summary>
 public static class GranaryAdvisor
 {
     private const int Days = 7;
-    private const int RarePerDay = 6;      // Granary V
     private const int CommonPerDay = 12;   // average of 0-24
     private const double CommonWeight = 0.25;
     private const double Baseline = 6;     // weekly "keep some around" demand for unused materials
@@ -61,9 +60,10 @@ public static class GranaryAdvisor
 
         double Urgency(uint id) => (weekly.GetValueOrDefault(id) + Baseline) / (projected.GetValueOrDefault(id) + 1);
 
+        var rarePerDay = 6;
         double Score(Destination d)
         {
-            var score = RarePerDay * Days * Urgency(d.RarePouchId);
+            var score = rarePerDay * Days * Urgency(d.RarePouchId);
             foreach (var c in d.CommonPouchIds.Where(discovered.Contains))
                 score += CommonWeight * CommonPerDay * Days * Urgency(c);
             return score;
@@ -72,6 +72,9 @@ public static class GranaryAdvisor
         var granaries = s.Expeditions.Count > 0 ? s.Expeditions : [new Expedition { Granary = 1 }, new Expedition { Granary = 2 }];
         foreach (var g in granaries)
         {
+            // Rare yield per day: Granary I-V = 2-6 (level is 0-based).
+            var building = g.Granary - 1 < s.GranaryBuildings.Count ? s.GranaryBuildings[g.Granary - 1] : null;
+            rarePerDay = building is { Placed: true } ? building.Level + 2 : 6;
             var best = areas.OrderByDescending(Score).First();
             var current = areas.FirstOrDefault(d => d.Id == g.ExpeditionId);
 
@@ -100,7 +103,7 @@ public static class GranaryAdvisor
             advice.Add(new GranaryAdvice { Granary = g.Granary, Destination = best, Action = action, Reason = Reason(best) });
 
             // The next granary sees this one's haul.
-            projected[best.RarePouchId] = projected.GetValueOrDefault(best.RarePouchId) + RarePerDay * Days;
+            projected[best.RarePouchId] = projected.GetValueOrDefault(best.RarePouchId) + rarePerDay * Days;
             foreach (var c in best.CommonPouchIds) projected[c] = projected.GetValueOrDefault(c) + CommonPerDay * Days;
         }
 

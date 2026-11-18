@@ -43,27 +43,13 @@ public sealed unsafe class IslandReader
         snap.NextPopularityRow = mgr->NextPopularity;
         snap.CabinLevel = island->CabinLevel;
 
-        for (var i = 0; i < 4; i++)
-        {
-            snap.Workshops.Add(new Building
-            {
-                Placed = island->Workshops.PlaceId[i] != 0,
-                Level = island->Workshops.BuildingLevel[i],
-                UnderConstruction = island->Workshops.UnderConstruction[i] != 0,
-                HoursToCompletion = island->Workshops.HoursToCompletion[i],
-            });
-        }
-
-        for (var i = 0; i < 2; i++)
-        {
-            snap.GranaryBuildingsRaw.Add(new Building
-            {
-                Placed = island->Granaries.PlaceId[i] != 0,
-                Level = island->Granaries.BuildingLevel[i],
-                UnderConstruction = island->Granaries.UnderConstruction[i] != 0,
-                HoursToCompletion = island->Granaries.HoursToCompletion[i],
-            });
-        }
+        // ClientStructs maps MJIWorkshops/MJIGranaries without the 8-byte pointer each one starts with,
+        // so every field reads 8 bytes early (granaries came out "under construction, 247 h").
+        // Real layout, checked against a fully built island: pointer, then PlaceId, GlamourLevel,
+        // HoursToCompletion, BuildingLevel, UnderConstruction (one byte per building each).
+        var raw = (byte*)island;
+        snap.Workshops.AddRange(ReadBuildings(raw + 0xB0, 4));
+        snap.GranaryBuildings.AddRange(ReadBuildings(raw + 0xD0, 2));
 
         snap.RawIslandState = Convert.ToHexString(new ReadOnlySpan<byte>(island, IslandState.StructSize));
         snap.Farm = FromFarmPasture(island->Farm);
@@ -114,6 +100,23 @@ public sealed unsafe class IslandReader
         }
 
         snap.SupplyHistory = config.SupplyHistory;
+    }
+
+    private static List<Building> ReadBuildings(byte* fields, int count)
+    {
+        var list = new List<Building>();
+        for (var i = 0; i < count; i++)
+        {
+            list.Add(new Building
+            {
+                Placed = fields[i] != 0,
+                Level = fields[3 * count + i],
+                HoursToCompletion = fields[2 * count + i],
+                UnderConstruction = fields[4 * count + i] != 0,
+            });
+        }
+
+        return list;
     }
 
     private static Building FromFarmPasture(MJIFarmPasture fp) => new()

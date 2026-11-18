@@ -122,8 +122,14 @@ public sealed class MainWindow : Window
         Row("Cabin level", s.CabinLevel.ToString());
         for (var i = 0; i < s.Workshops.Count; i++)
             Row($"Workshop {i + 1}", s.Workshops[i].Placed ? $"Workshop {Roman(s.Workshops[i].Level + 1)}" + (s.Workshops[i].UnderConstruction ? ", under construction" : string.Empty) : "not built");
-        foreach (var e in s.Expeditions)
-            Row($"Granary {e.Granary}", e.ExpeditionId == 0 ? "idle" : $"on an expedition to {e.Destination} ({e.DaysRemaining} day(s) left)");
+        for (var i = 0; i < s.GranaryBuildings.Count; i++)
+        {
+            var b = s.GranaryBuildings[i];
+            var e = s.Expeditions.FirstOrDefault(x => x.Granary == i + 1);
+            var text = !b.Placed ? "not built" : $"Granary {Roman(b.Level + 1)}" + (b.UnderConstruction ? $", under construction ({b.HoursToCompletion} h left)" : string.Empty);
+            if (b.Placed && e != null) text += e.ExpeditionId == 0 ? ", idle" : $", on an expedition to {e.Destination} ({e.DaysRemaining} day(s) left)";
+            Row($"Granary {i + 1}", text);
+        }
         Row("Cropland", Describe(s.Farm));
         Row("Pasture", Describe(s.Pasture));
 

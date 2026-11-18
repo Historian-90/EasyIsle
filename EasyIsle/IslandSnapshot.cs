@@ -36,8 +36,7 @@ public class IslandSnapshot
     public bool DemandValid { get; set; }
 
     public List<Building> Workshops { get; set; } = [];
-    /// <summary>Granary building info as FFXIVClientStructs maps it. Known to be wrong as of 0.1.0 (kept for debugging).</summary>
-    public List<Building> GranaryBuildingsRaw { get; set; } = [];
+    public List<Building> GranaryBuildings { get; set; } = [];
     public Building Farm { get; set; } = new();
     public Building Pasture { get; set; } = new();
     public int CabinLevel { get; set; }
