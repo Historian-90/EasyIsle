@@ -59,6 +59,7 @@ public sealed unsafe class IslandReader
         ReadIsleventory(mgr, snap);
         ReadExpeditions(mgr, snap);
         ReadDestinations(snap);
+        ReadGathering(snap);
         ReadFarm(mgr, snap);
         ReadFeedRecipes(snap);
         ReadPasture(mgr, snap);
@@ -358,6 +359,53 @@ public sealed unsafe class IslandReader
     /// Expedition areas as the granary window lists them (only unlocked ones, names in the game's
     /// language). Remembered once seen, since the window has to be open for the game to load them.
     /// </summary>
+    private List<GatherSpot>? gatherCache;
+
+    /// <summary>
+    /// The island gathering log's data: each material's area (world X/Z and radius, converted to map
+    /// coordinates with the island map's scale and offset), its stage and whether it's in the cave.
+    /// </summary>
+    private void ReadGathering(IslandSnapshot snap)
+    {
+        if (gatherCache == null)
+        {
+            var list = new List<GatherSpot>();
+            var territory = config.IslandTerritory != 0 ? config.IslandTerritory : 1055u;
+            float scale = 100, offX = 0, offY = 0;
+            if (Plugin.DataManager.GetExcelSheet<TerritoryType>().TryGetRow(territory, out var t))
+            {
+                scale = t.Map.Value.SizeFactor;
+                offX = t.Map.Value.OffsetX;
+                offY = t.Map.Value.OffsetY;
+            }
+
+            var pouchByItem = Plugin.DataManager.GetExcelSheet<MJIItemPouch>()
+                .Where(p => p.Item.RowId != 0)
+                .GroupBy(p => p.Item.RowId)
+                .ToDictionary(g => g.Key, g => g.First().RowId);
+            foreach (var g in Plugin.DataManager.GetExcelSheet<MJIGatheringItem>())
+            {
+                if (g.Item.RowId == 0 || !pouchByItem.TryGetValue(g.Item.RowId, out var pouch)) continue;
+                list.Add(new GatherSpot
+                {
+                    PouchId = pouch,
+                    ItemId = g.Item.RowId,
+                    Name = g.Item.Value.Name.ExtractText(),
+                    X = MapGeometry.ToMap(g.X, offX, scale),
+                    Y = MapGeometry.ToMap(g.Y, offY, scale),
+                    Radius = MapGeometry.ToMapLength(g.Radius, scale),
+                    Tier = g.Unknown0,
+                    Cave = g.Unknown1 != 0,
+                    Sort = g.Sort,
+                });
+            }
+
+            gatherCache = list;
+        }
+
+        snap.GatherSpots = gatherCache;
+    }
+
     private void ReadDestinations(IslandSnapshot snap)
     {
         var agent = AgentMJIGatheringHouse.Instance();

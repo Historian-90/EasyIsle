@@ -52,6 +52,9 @@ public class IslandSnapshot
     /// <summary>Granary expedition areas from the game data.</summary>
     public List<Destination> Destinations { get; set; } = [];
 
+    /// <summary>Where each island material and wild seed can be gathered (MJIGatheringItem).</summary>
+    public List<GatherSpot> GatherSpots { get; set; } = [];
+
     /// <summary>True when the unlocked areas were read from the game (granary window opened at least once).</summary>
     public bool DestinationsUnlockKnown { get; set; }
     public List<FarmPlot> FarmPlots { get; set; } = [];
@@ -263,4 +266,26 @@ public class AnimalKind
     public uint CommonPouchId { get; set; }
     public uint BonusPouchId { get; set; }
     public uint Icon { get; set; }
+}
+
+/// <summary>An island material's gathering area, in map coordinates.</summary>
+[Serializable]
+public class GatherSpot
+{
+    public uint PouchId { get; set; }
+    public uint ItemId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public float X { get; set; }
+    public float Y { get; set; }
+
+    /// <summary>Radius of the area to search, in map units.</summary>
+    public float Radius { get; set; }
+
+    /// <summary>The gathering stage it belongs to (0 = bare hands; higher needs more island progress).</summary>
+    public int Tier { get; set; }
+
+    /// <summary>In the cave system rather than on the surface.</summary>
+    public bool Cave { get; set; }
+
+    public int Sort { get; set; }
 }

@@ -557,16 +557,187 @@ public sealed class MainWindow : Window
     {
         var now = DateTimeOffset.UtcNow;
         DrawWeather(now);
-        ImGui.TextColored(Muted, "Animals for now; materials and seeds come next. \"Map\" puts the game's flag on the spot.");
         ImGui.SetNextItemWidth(250);
-        ImGui.InputTextWithHint("##findfilter", "Search name or leaving...", ref findFilter, 64);
+        ImGui.InputTextWithHint("##findfilter", "Search...", ref findFilter, 64);
+        ImGui.SameLine();
+        ImGui.TextColored(Muted, "\"Map\" puts the game's flag on the spot and opens the map.");
+        if (!ImGui.BeginTabBar("##findtabs")) return;
+        if (ImGui.BeginTabItem("Materials"))
+        {
+            DrawFindMaterials(s);
+            ImGui.EndTabItem();
+        }
 
+        if (ImGui.BeginTabItem("Seeds"))
+        {
+            DrawFindSeeds(s);
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("Animals"))
+        {
+            DrawFindAnimals(s, now);
+            ImGui.EndTabItem();
+        }
+
+        ImGui.EndTabBar();
+    }
+
+    private bool Matches(string text) => findFilter.Length == 0 || text.Contains(findFilter, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Workshop use per full week, from the kept week plan.</summary>
+    private Dictionary<uint, double> WeeklyUse()
+    {
+        var use = new Dictionary<uint, double>();
+        var week = plugin.Week;
+        if (week == null || week.Days.Count == 0) return use;
+        foreach (var (id, amount) in week.MaterialUse) use[id] = amount * 5.0 / week.Days.Count;
+        return use;
+    }
+
+    private static string Tool(int tier) => tier switch
+    {
+        0 => "bare hands",
+        1 => "Islekeep's Stone Hatchet",
+        2 => "Islekeep's Stone Hammer",
+        3 => "Islekeep's Shovel",
+        4 => "Islekeep's Copper Scythe",
+        6 => "Islekeep's Bronze Beakaxe",
+        _ => "a later island tool",
+    };
+
+    private void DrawGatherSpot(GatherSpot g, string id)
+    {
+        if (ImGui.SmallButton($"Map##{id}{g.PouchId}")) plugin.FlagOnMap(g.X, g.Y);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip($"({g.X:0.0}, {g.Y:0.0}){(g.Cave ? " in the cave system" : string.Empty)}, search within about {g.Radius:0.#} of it.\nNeeds {Tool(g.Tier)}.");
+    }
+
+    private void DrawFindMaterials(IslandSnapshot s)
+    {
+        var use = WeeklyUse();
+        var spots = s.GatherSpots.Where(g => s.Isleventory.Any(p => p.PouchId == g.PouchId && p.CropRow == 0)).ToList();
+        var gathered = spots.Select(g => g.PouchId).ToHashSet();
+        var fromGranary = new Dictionary<uint, List<string>>();
+        foreach (var d in s.Destinations)
+        {
+            foreach (var id in d.CommonPouchIds.Append(d.RarePouchId))
+            {
+                if (id == 0 || gathered.Contains(id)) continue;
+                if (!fromGranary.TryGetValue(id, out var l)) fromGranary[id] = l = [];
+                if (!l.Contains(d.Name)) l.Add(d.Name);
+            }
+        }
+
+        var items = s.Isleventory.ToDictionary(p => p.PouchId);
+        var rows = spots.Select(g => (Id: g.PouchId, Spot: (GatherSpot?)g, Sort: g.Sort))
+            .Concat(fromGranary.Keys.Select(id => (Id: id, Spot: (GatherSpot?)null, Sort: 1000 + (int)id)))
+            .Where(r => items.ContainsKey(r.Id) && Matches(items[r.Id].Name))
+            .Select(r =>
+            {
+                var item = items[r.Id];
+                var perWeek = use.GetValueOrDefault(r.Id);
+                double? weeks = perWeek >= 0.5 ? item.Count / perWeek : null;
+                return (r.Spot, Item: item, PerWeek: perWeek, Weeks: weeks, r.Sort);
+            })
+            .OrderBy(r => r.Weeks ?? double.MaxValue)
+            .ThenBy(r => r.Sort)
+            .ToList();
+
+        ImGui.TextColored(Muted, "Sorted by how soon this week's agendas run each one out. Hover a Map button for the tool it needs.");
+        if (!ImGui.BeginTable("##findmat", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY)) return;
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableSetupColumn("Material");
+        ImGui.TableSetupColumn("On hand", ImGuiTableColumnFlags.WidthFixed, 60);
+        ImGui.TableSetupColumn("Workshops / wk", ImGuiTableColumnFlags.WidthFixed, 105);
+        ImGui.TableSetupColumn("Lasts", ImGuiTableColumnFlags.WidthFixed, 95);
+        ImGui.TableSetupColumn("Where", ImGuiTableColumnFlags.WidthFixed, 260);
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 40);
+        ImGui.TableHeadersRow();
+        foreach (var r in rows)
+        {
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            Icon(r.Item.Icon, ImGui.GetTextLineHeight());
+            ImGui.SameLine();
+            ImGui.TextUnformatted(r.Item.Name);
+            ImGui.TableNextColumn();
+            if (r.Item.Count >= 999) ImGui.TextColored(Warn, "999 (cap)");
+            else ImGui.TextUnformatted(r.Item.Count.ToString());
+            Cell(r.PerWeek >= 0.5 ? r.PerWeek.ToString("0") : "-");
+            ImGui.TableNextColumn();
+            if (r.Weeks is { } w) ImGui.TextColored(w < 2 ? Warn : w < 6 ? new Vector4(1, 1, 1, 1) : Muted, w < 1 ? "under a week" : $"{w:0.#} weeks");
+            else ImGui.TextColored(Muted, "-");
+            ImGui.TableNextColumn();
+            if (r.Spot is { } g)
+            {
+                var where = $"({g.X:0.0}, {g.Y:0.0}){(g.Cave ? " cave" : string.Empty)}";
+                if (r.Item.Discovered) ImGui.TextUnformatted(where);
+                else ImGui.TextColored(Muted, $"{where}, not in your log yet");
+                if (!r.Item.Discovered && ImGui.IsItemHovered())
+                    ImGui.SetTooltip($"You haven't gathered this yet. It needs {Tool(g.Tier)}, which comes with island progress.");
+                ImGui.TableNextColumn();
+                DrawGatherSpot(g, "mat");
+            }
+            else
+            {
+                ImGui.TextColored(Muted, "Granary: " + string.Join(", ", fromGranary[r.Item.PouchId]));
+                ImGui.TableNextColumn();
+            }
+        }
+
+        ImGui.EndTable();
+    }
+
+    private void DrawFindSeeds(IslandSnapshot s)
+    {
+        var spots = s.GatherSpots.GroupBy(g => g.PouchId).ToDictionary(g => g.Key, g => g.First());
+        var planted = s.FarmPlots.Where(f => f.SeedPouchId != 0).GroupBy(f => f.SeedPouchId).ToDictionary(g => g.Key, g => g.Count());
+        var produce = s.Isleventory.Where(p => p.IsProduce).GroupBy(p => p.CropRow).ToDictionary(g => g.Key, g => g.First());
+        var seeds = s.Isleventory.Where(p => !p.IsProduce && p.CropRow != 0 && Matches(p.Name)).OrderBy(p => p.CropRow).ToList();
+
+        ImGui.TextColored(Muted, "A few seeds grow wild and can be gathered from the start; the cropland mammet sells more as your island ranks up.");
+        if (!ImGui.BeginTable("##findseed", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY)) return;
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableSetupColumn("Seed");
+        ImGui.TableSetupColumn("On hand", ImGuiTableColumnFlags.WidthFixed, 60);
+        ImGui.TableSetupColumn("Planted", ImGuiTableColumnFlags.WidthFixed, 60);
+        ImGui.TableSetupColumn("Where", ImGuiTableColumnFlags.WidthFixed, 300);
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 40);
+        ImGui.TableHeadersRow();
+        foreach (var seed in seeds)
+        {
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            Icon(seed.Icon, ImGui.GetTextLineHeight());
+            ImGui.SameLine();
+            ImGui.TextUnformatted(seed.Name);
+            Cell(seed.Count.ToString());
+            Cell(planted.TryGetValue(seed.PouchId, out var n) ? n.ToString() : "");
+            ImGui.TableNextColumn();
+            if (spots.TryGetValue(seed.PouchId, out var g))
+            {
+                ImGui.TextUnformatted($"Grows wild at ({g.X:0.0}, {g.Y:0.0}), or from the mammet");
+                ImGui.TableNextColumn();
+                DrawGatherSpot(g, "seed");
+            }
+            else
+            {
+                var grown = produce.TryGetValue(seed.CropRow, out var pr) && pr.Discovered;
+                if (seed.Count > 0 || grown) ImGui.TextUnformatted("Cropland mammet");
+                else ImGui.TextColored(Muted, "Cropland mammet, once your island rank unlocks it");
+                ImGui.TableNextColumn();
+            }
+        }
+
+        ImGui.EndTable();
+    }
+
+    private void DrawFindAnimals(IslandSnapshot s, DateTimeOffset now)
+    {
         var owned = s.Animals.GroupBy(a => a.Species).ToDictionary(g => g.Key, g => g.Count());
         var rows = SpeciesTable.All
-            .Where(a => findFilter.Length == 0
-                        || a.Name.Contains(findFilter, StringComparison.OrdinalIgnoreCase)
-                        || a.Common.Contains(findFilter, StringComparison.OrdinalIgnoreCase)
-                        || a.Bonus.Contains(findFilter, StringComparison.OrdinalIgnoreCase))
+            .Where(a => Matches(a.Name) || Matches(a.Common) || Matches(a.Bonus))
             .Select(a => (Spot: a, Window: a.Rare ? WindowFor(a, now) : null))
             .OrderBy(r => !r.Spot.Rare ? 2 : r.Window == null ? 3 : r.Window.OpenAt(now) ? 0 : 1)
             .ThenBy(r => r.Window?.Start ?? DateTimeOffset.MaxValue)
