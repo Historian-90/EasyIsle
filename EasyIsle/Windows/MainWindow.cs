@@ -209,6 +209,8 @@ public sealed class MainWindow : Window
     }
 
     private bool showAllCrops;
+    private uint highlightCrop;
+    private uint nextHighlight;
 
     private static void Icon(uint icon, float size)
     {
@@ -235,6 +237,8 @@ public sealed class MainWindow : Window
         foreach (var a in plan.Alerts) ImGui.TextColored(Warn, a);
         if (plan.Alerts.Count > 0) ImGui.Spacing();
 
+        highlightCrop = nextHighlight;
+        nextHighlight = 0;
         DrawPlotGrid(plan, snap);
 
         var changes = plan.Plots.Where(p => p.Change).ToList();
@@ -252,17 +256,21 @@ public sealed class MainWindow : Window
                 ? $"Plant {changes.Count} plot(s):"
                 : $"Plant or replant {changes.Count} plot(s) (if the gardener tends one, dismiss it first, then plant and entrust again):");
             ImGui.TextColored(Muted, "Crops your workshops or feed will run short of get plots first; the rest go to whatever you have least of.");
-            foreach (var c in changes)
+            // One seed at a time: group plots by what to plant. Hovering a group lights its plots up.
+            foreach (var g in changes.GroupBy(c => c.Recommended!.PouchId).OrderByDescending(g => g.Count()))
             {
-                ImGui.TextUnformatted($"  Plot {c.Slot}:");
+                var crop = g.First().Recommended!;
+                ImGui.TextUnformatted("  ");
                 ImGui.SameLine();
-                ImGui.TextColored(Muted, c.Plot.CropPouchId == 0 ? "empty" : c.Plot.Crop);
+                Icon(crop.Icon, ImGui.GetTextLineHeight());
                 ImGui.SameLine();
-                ImGui.TextUnformatted("->");
+                ImGui.TextUnformatted($"{crop.Name} ({g.Count()}):");
                 ImGui.SameLine();
-                Icon(c.Recommended!.Icon, ImGui.GetTextLineHeight());
-                ImGui.SameLine();
-                ImGui.TextUnformatted(c.Recommended.Name);
+                ImGui.TextUnformatted("plots " + string.Join(", ", g.Select(c => c.Slot).OrderBy(x => x)));
+                if (ImGui.IsItemHovered()) nextHighlight = crop.PouchId;
+                var replacing = g.Where(c => c.Plot.CropPouchId != 0).ToList();
+                if (replacing.Count > 0)
+                    ImGui.TextColored(Muted, "      replaces " + string.Join(", ", replacing.Select(c => $"{c.Plot.Crop} on {c.Slot}")));
             }
         }
 
@@ -307,8 +315,9 @@ public sealed class MainWindow : Window
         const float gap = 6f;
         var plots = plan.Plots;
 
-        // Same order as the island: the path up the steps is on the right, so every row of five
-        // counts right to left: plot 1 bottom right, plot 5 bottom left, ... plot 20 top left.
+        // The game's numbering snakes up the terraces: plot 1 bottom right, the bottom row runs
+        // right to left, the next row back left to right, and so on (plot 20 top right). Checked in
+        // game: plot 19 is second from the right on the top row.
         const int cols = 5;
         var rowCount = (plots.Count + cols - 1) / cols;
         var spots = new Dictionary<int, Vector2>();
@@ -316,7 +325,7 @@ public sealed class MainWindow : Window
         {
             var row = (p.Slot - 1) / cols;
             var k = (p.Slot - 1) % cols;
-            var col = cols - 1 - k;
+            var col = row % 2 == 0 ? cols - 1 - k : k;
             spots[p.Slot] = new Vector2(col * (cell + gap), (rowCount - 1 - row) * (cell + gap));
         }
 
@@ -346,7 +355,9 @@ public sealed class MainWindow : Window
                 draw.AddText(max - size - new Vector2(3, 1), ImGui.GetColorU32(a.Plot.Yield >= 50 ? Warn : Good), t);
             }
 
-            if (a.Change)
+            if (a.Change && highlightCrop != 0 && a.Recommended!.PouchId == highlightCrop)
+                draw.AddRect(min - new Vector2(2), max + new Vector2(2), ImGui.GetColorU32(new Vector4(1, 1, 1, 1)), 4f, ImDrawFlags.None, 3f);
+            else if (a.Change)
                 draw.AddRect(min, max, ImGui.GetColorU32(Warn), 4f, ImDrawFlags.None, 2f);
 
             ImGui.SetCursorScreenPos(min);
@@ -363,7 +374,7 @@ public sealed class MainWindow : Window
         }
 
         ImGui.SetCursorScreenPos(origin + new Vector2(0, area.Y + gap));
-        ImGui.TextColored(Muted, "Laid out as you see it walking up from the bottom right. Orange border = replant. Corner number = produce waiting with the gardener.");
+        ImGui.TextColored(Muted, "Laid out as you see it walking up from the bottom right. Orange border = plant/replant (hover a crop below to light up its plots). Corner number = produce waiting with the gardener.");
     }
 
     private void DrawFeed(CropPlan plan, IslandSnapshot snap)
