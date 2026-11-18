@@ -360,6 +360,43 @@ public sealed class MainWindow : Window
                 ? "nothing scheduled"
                 : string.Join("  >  ", w.Entries.Select(e => $"{e.Name} ({e.StartHour}h+{e.Hours}{(e.Efficient ? ", efficient" : string.Empty)})")));
         }
+
+        ImGui.Spacing();
+        if (ImGui.CollapsingHeader("Agenda clipboard readout (for debugging)"))
+        {
+            var text = AgendaReadout();
+            ImGui.TextUnformatted(text);
+            if (ImGui.Button("Copy readout")) ImGui.SetClipboardText(text);
+        }
+    }
+
+    /// <summary>Raw view of the game's copied agenda and the displayed cycle's workshops.</summary>
+    private static unsafe string AgendaReadout()
+    {
+        var agent = FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentMJICraftSchedule.Instance();
+        if (agent == null || agent->Data == null || !agent->IsAgentActive()) return "Open the Isleworks agenda first.";
+        var data = agent->Data;
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"cycle displayed {data->CycleDisplayed}, in progress {data->CycleInProgress}, hour {data->HourSinceCycleStart}, flags {(byte)data->Flags1:X2}/{(byte)data->Flags2:X2}");
+        Dump(sb, "copied", &data->CopiedSchedule);
+        for (var i = 0; i < data->WorkshopSchedules.Length; i++)
+            fixed (FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentMJICraftSchedule.WorkshopData* w = &data->WorkshopSchedules[i])
+                Dump(sb, $"workshop {i + 1}", w);
+        return sb.ToString();
+    }
+
+    private static unsafe void Dump(System.Text.StringBuilder sb, string label, FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentMJICraftSchedule.WorkshopData* w)
+    {
+        sb.AppendLine($"{label}: entries {w->NumScheduleEntries}, efficient {w->NumEfficientCrafts}, slots {w->UsedTimeSlots:X8}");
+        for (var i = 0; i < w->EntryData.Length; i++)
+        {
+            var e = w->EntryData[i];
+            if (e.CraftObjectId == 0 && e.Duration == 0) continue;
+            sb.AppendLine($"  [{i}] craft {e.CraftObjectId} flags {(uint)e.Flags:X} start {e.StartingSlot} dur {e.Duration} started {e.Started} eff {e.Efficient}");
+        }
+
+        var raw = new ReadOnlySpan<byte>(w, 84);
+        sb.AppendLine("  raw " + Convert.ToHexString(raw));
     }
 
     private static void Cell(string text)
