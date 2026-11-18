@@ -31,7 +31,8 @@ public class IslandSnapshot
     public bool DemandValid { get; set; }
 
     public List<Building> Workshops { get; set; } = [];
-    public List<Building> GranaryBuildings { get; set; } = [];
+    /// <summary>Granary building info as FFXIVClientStructs maps it. Known to be wrong as of 0.1.0 (kept for debugging).</summary>
+    public List<Building> GranaryBuildingsRaw { get; set; } = [];
     public Building Farm { get; set; } = new();
     public Building Pasture { get; set; } = new();
     public int CabinLevel { get; set; }
@@ -53,6 +54,9 @@ public class IslandSnapshot
     public List<WorkshopAgenda> Schedule { get; set; } = [];
 
     public List<string> Problems { get; set; } = [];
+
+    /// <summary>Hex dump of IslandState (offset 0x00 onward), for working out fields the struct map gets wrong.</summary>
+    public string RawIslandState { get; set; } = string.Empty;
 }
 
 [Serializable]

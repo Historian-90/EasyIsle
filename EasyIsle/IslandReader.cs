@@ -53,7 +53,7 @@ public sealed unsafe class IslandReader
 
         for (var i = 0; i < 2; i++)
         {
-            snap.GranaryBuildings.Add(new Building
+            snap.GranaryBuildingsRaw.Add(new Building
             {
                 Placed = island->Granaries.PlaceId[i] != 0,
                 Level = island->Granaries.BuildingLevel[i],
@@ -62,6 +62,7 @@ public sealed unsafe class IslandReader
             });
         }
 
+        snap.RawIslandState = Convert.ToHexString(new ReadOnlySpan<byte>(island, IslandState.StructSize));
         snap.Farm = FromFarmPasture(island->Farm);
         snap.Pasture = FromFarmPasture(island->Pasture);
 

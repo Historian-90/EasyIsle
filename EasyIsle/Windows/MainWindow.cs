@@ -120,9 +120,24 @@ public sealed class MainWindow : Window
         Row("Supply & Demand", s.DemandValid ? $"loaded (popularity set {s.PopularityRow}, next {s.NextPopularityRow})" : "not loaded");
         Row("Cabin level", s.CabinLevel.ToString());
         for (var i = 0; i < s.Workshops.Count; i++) Row($"Workshop {i + 1}", Describe(s.Workshops[i]));
-        for (var i = 0; i < s.GranaryBuildings.Count; i++) Row($"Granary {i + 1}", Describe(s.GranaryBuildings[i]));
+        foreach (var e in s.Expeditions)
+            Row($"Granary {e.Granary}", e.ExpeditionId == 0 ? "idle" : $"on an expedition to {e.Destination} ({e.DaysRemaining} day(s) left)");
         Row("Cropland", Describe(s.Farm));
         Row("Pasture", Describe(s.Pasture));
+
+        ImGui.Spacing();
+        if (ImGui.CollapsingHeader("Raw island data (for debugging)"))
+        {
+            ImGui.TextColored(Muted, "Offset  bytes");
+            for (var i = 0; i < s.RawIslandState.Length; i += 32)
+            {
+                var line = s.RawIslandState.Substring(i, Math.Min(32, s.RawIslandState.Length - i));
+                var spaced = string.Join(" ", Enumerable.Range(0, line.Length / 2).Select(b => line.Substring(b * 2, 2)));
+                ImGui.TextUnformatted($"{i / 2:X4}    {spaced}");
+            }
+
+            if (ImGui.Button("Copy raw data")) ImGui.SetClipboardText(s.RawIslandState);
+        }
     }
 
     private static string DayName(int cycleDay) =>
