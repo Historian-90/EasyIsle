@@ -1,0 +1,92 @@
+name: Release
+
+# Bump <Version> in EasyIsle/EasyIsle.csproj and push to main: this builds the plugin,
+# publishes it as a GitHub release (v<version>), and updates repo.json so Dalamud
+# picks up the update. Can also be run by hand from the Actions tab.
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'EasyIsle/EasyIsle.csproj', '.github/workflows/release.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        ref: main
+        fetch-depth: 0
+
+    - name: Install .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Download Dalamud
+      run: |
+        Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile latest.zip
+        Expand-Archive -Force latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
+
+    - name: Work out version
+      id: ver
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        [xml]$proj = Get-Content EasyIsle\EasyIsle.csproj
+        $v = ($proj.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1).Version.Trim()
+        # Dalamud wants four parts: 0.1.1 -> 0.1.1.0
+        while (($v.Split('.')).Count -lt 4) { $v = "$v.0" }
+        $tag = "v" + ($v -replace '\.0$', '')
+        gh release view $tag 2>$null
+        $exists = ($LASTEXITCODE -eq 0)
+        "version=$v" >> $env:GITHUB_OUTPUT
+        "tag=$tag" >> $env:GITHUB_OUTPUT
+        "exists=$exists" >> $env:GITHUB_OUTPUT
+        if ($exists) { Write-Host "Release $tag already exists; bump <Version> to publish a new one." }
+        exit 0
+
+    - name: Build
+      if: steps.ver.outputs.exists == 'False'
+      run: dotnet build EasyIsle.slnx --configuration Release -p:Version=${{ steps.ver.outputs.version }}
+
+    - name: Find packaged plugin
+      if: steps.ver.outputs.exists == 'False'
+      id: zip
+      shell: pwsh
+      run: |
+        $zip = Get-ChildItem -Recurse -Path EasyIsle\bin -Filter latest.zip | Select-Object -First 1
+        if (-not $zip) { throw "DalamudPackager didn't produce latest.zip" }
+        "path=$($zip.FullName)" >> $env:GITHUB_OUTPUT
+
+    - name: Publish release
+      if: steps.ver.outputs.exists == 'False'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release create "${{ steps.ver.outputs.tag }}" "${{ steps.zip.outputs.path }}" --target main --title "EasyIsle ${{ steps.ver.outputs.tag }}" --generate-notes
+
+    - name: Update repo.json
+      if: steps.ver.outputs.exists == 'False'
+      shell: pwsh
+      run: |
+        $json = Get-Content repo.json -Raw | ConvertFrom-Json
+        $json[0].AssemblyVersion = "${{ steps.ver.outputs.version }}"
+        $json[0].LastUpdate = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        # Link to this exact release, not "latest": Dalamud and GitHub cache repo.json for a few
+        # minutes, and a cached version number must still match the zip it downloads.
+        $link = "https://github.com/${{ github.repository }}/releases/download/${{ steps.ver.outputs.tag }}/latest.zip"
+        $json[0].DownloadLinkInstall = $link
+        $json[0].DownloadLinkUpdate = $link
+        $json[0].DownloadLinkTesting = $link
+        ConvertTo-Json -InputObject @($json) -Depth 5 | Set-Content repo.json -Encoding utf8
+        git config user.name "github-actions"
+        git config user.email "github-actions@users.noreply.github.com"
+        git add repo.json
+        git commit -m "Release ${{ steps.ver.outputs.tag }}" || exit 0
+        git push origin main

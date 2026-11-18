@@ -1,0 +1,167 @@
+using System;
+using System.Collections.Generic;
+
+namespace EasyIsle;
+
+/// <summary>
+/// Everything EasyIsle knows about the player's island at one moment. Plain data, so it can be
+/// saved as JSON and fed to the planner without the game running.
+/// </summary>
+[Serializable]
+public class IslandSnapshot
+{
+    public DateTime TakenUtc { get; set; } = DateTime.UtcNow;
+    public bool OnIsland { get; set; }
+    public bool ManagerFound { get; set; }
+
+    public int Rank { get; set; }
+    public uint Xp { get; set; }
+    public uint Groove { get; set; }
+
+    /// <summary>0-6, 0 = reset day (Tuesday).</summary>
+    public int CycleDay { get; set; }
+
+    /// <summary>0-13; 0 = this week's reset day, 7 = next reset.</summary>
+    public List<int> RestDays { get; set; } = [];
+
+    public int PopularityRow { get; set; }
+    public int NextPopularityRow { get; set; }
+
+    /// <summary>False while the game hasn't loaded Supply &amp; Demand yet (open the Isleworks once).</summary>
+    public bool DemandValid { get; set; }
+
+    public List<Building> Workshops { get; set; } = [];
+    public List<Building> GranaryBuildings { get; set; } = [];
+    public Building Farm { get; set; } = new();
+    public Building Pasture { get; set; } = new();
+    public int CabinLevel { get; set; }
+
+    public List<Craft> Crafts { get; set; } = [];
+
+    /// <summary>Where the isleventory counts came from ("live", "cached ...", or "unavailable").</summary>
+    public string IsleventorySource { get; set; } = "unavailable";
+
+    public List<PouchItem> Isleventory { get; set; } = [];
+    public List<Expedition> Expeditions { get; set; } = [];
+    public List<FarmPlot> FarmPlots { get; set; } = [];
+    public List<Animal> Animals { get; set; } = [];
+    public List<Favor> Favors { get; set; } = [];
+
+    /// <summary>The agenda as the game shows it; only filled while the Isleworks window is open.</summary>
+    public string ScheduleSource { get; set; } = "unavailable";
+
+    public List<WorkshopAgenda> Schedule { get; set; } = [];
+
+    public List<string> Problems { get; set; } = [];
+}
+
+[Serializable]
+public class Building
+{
+    public bool Placed { get; set; }
+    public int Level { get; set; }
+    public bool UnderConstruction { get; set; }
+    public int HoursToCompletion { get; set; }
+}
+
+[Serializable]
+public class Craft
+{
+    public uint Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public int RankRequired { get; set; }
+    public bool Available { get; set; }
+    public int Hours { get; set; }
+    public int Value { get; set; }
+    public List<string> Themes { get; set; } = [];
+    public List<Ingredient> Materials { get; set; } = [];
+    public string Supply { get; set; } = string.Empty;
+    public string DemandShift { get; set; } = string.Empty;
+    public string Popularity { get; set; } = string.Empty;
+    public string NextPopularity { get; set; } = string.Empty;
+}
+
+[Serializable]
+public class Ingredient
+{
+    public uint PouchId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public int Amount { get; set; }
+}
+
+[Serializable]
+public class PouchItem
+{
+    public uint PouchId { get; set; }
+    public uint ItemId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public bool Discovered { get; set; }
+}
+
+[Serializable]
+public class Expedition
+{
+    public int Granary { get; set; }
+    public int ExpeditionId { get; set; }
+    public string Destination { get; set; } = string.Empty;
+    public int DaysRemaining { get; set; }
+    public string RareMaterial { get; set; } = string.Empty;
+    public int RareCount { get; set; }
+    public int WaitingToCollect { get; set; }
+    public DateTime? FinishesUtc { get; set; }
+}
+
+[Serializable]
+public class FarmPlot
+{
+    public int Slot { get; set; }
+    public uint SeedRow { get; set; }
+    public string Crop { get; set; } = string.Empty;
+    public int Growth { get; set; }
+    public int Water { get; set; }
+    public int Yield { get; set; }
+    public bool UnderCare { get; set; }
+}
+
+[Serializable]
+public class Animal
+{
+    public int Slot { get; set; }
+    public string Species { get; set; } = string.Empty;
+    public string Nickname { get; set; } = string.Empty;
+    public int Food { get; set; }
+    public int Mood { get; set; }
+    public bool UnderCare { get; set; }
+    public List<string> Leavings { get; set; } = [];
+}
+
+[Serializable]
+public class Favor
+{
+    public int Index { get; set; }
+    public uint CraftId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public int Delivered { get; set; }
+    public int Scheduled { get; set; }
+    public bool Shipped { get; set; }
+    public bool Bonus { get; set; }
+}
+
+[Serializable]
+public class WorkshopAgenda
+{
+    public int Workshop { get; set; }
+    public List<AgendaEntry> Entries { get; set; } = [];
+}
+
+[Serializable]
+public class AgendaEntry
+{
+    public uint CraftId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public int StartHour { get; set; }
+    public int Hours { get; set; }
+    public bool Efficient { get; set; }
+}

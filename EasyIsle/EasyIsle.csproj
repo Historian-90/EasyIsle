@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.1.0.0</Version>
+    <Author>CJ</Author>
+    <Name>EasyIsle</Name>
+    <Punchline>Island Sanctuary workshop planner that works from what your island actually has.</Punchline>
+    <Description>Plans your Isleworks agenda around your real island: rank, workshops, isleventory, crops, animals, granary expeditions, Supply &amp; Demand and Felicitous Favors.
+
+Advice only: EasyIsle never sets anything for you. Everything is read locally from the game; nothing is sent anywhere.</Description>
+    <RepoUrl>https://github.com/Historian-90/EasyIsle</RepoUrl>
+    <Tags>island sanctuary;isleworks;workshop;craftworks;mji</Tags>
+  </PropertyGroup>
+</Project>
