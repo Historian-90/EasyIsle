@@ -179,6 +179,16 @@ public static class Planner
         return -1;
     }
 
+    public static double SupplyMultiplierFor(int bucket) => bucket is >= 0 and < 5 ? SupplyMultiplier[bucket] : 1.0;
+
+    /// <summary>Value of one item with a given supply multiplier.</summary>
+    public static int ValueEach(Craft c, int workshopLevel, int groove, double supplyMultiplier)
+    {
+        var popularity = c.PopularityPercent > 0 ? c.PopularityPercent / 100.0 : 1.0;
+        var inner = Math.Floor(c.Value * (1 + workshopLevel / 10.0) * (1 + groove / 100.0) + 1e-9);
+        return (int)Math.Floor(inner * popularity * supplyMultiplier + 1e-9);
+    }
+
     public static int ValueEach(Craft c, int workshopLevel, int groove)
     {
         var supply = c.SupplyLevel is >= 0 and < 5 ? SupplyMultiplier[c.SupplyLevel] : 1.0;

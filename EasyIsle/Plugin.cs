@@ -19,6 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+    [PluginService] internal static IFramework Framework { get; private set; } = null!;
 
     private const string Command = "/easyisle";
     private const string ShortCommand = "/ei";
@@ -29,7 +30,6 @@ public sealed class Plugin : IDalamudPlugin
     public IslandReader Reader { get; }
     public IslandSnapshot? Snapshot { get; private set; }
     public string? ReadError { get; private set; }
-    public Plan? Plan { get; private set; }
 
     private HashSet<uint>? gatherable;
 
@@ -94,23 +94,73 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
-    public void Replan()
+    public WeekPlan? Week { get; private set; }
+    public Dictionary<uint, Forecast> Forecasts { get; private set; } = [];
+    public bool Planning { get; private set; }
+
+    private string planSignature = string.Empty;
+    private bool replanQueued;
+
+    /// <summary>Re-plans the week in the background when anything that matters has changed.</summary>
+    public void Replan(bool force = false)
     {
-        if (Snapshot == null) return;
-        try
+        var snap = Snapshot;
+        if (snap == null) return;
+        var signature = Signature(snap);
+        if (!force && signature == planSignature) return;
+        if (Planning)
         {
-            Plan = Planner.Make(Snapshot, new PlanOptions
+            replanQueued = true;
+            return;
+        }
+
+        planSignature = signature;
+        Planning = true;
+        replanQueued = false;
+
+        // Work on a private copy: the live snapshot shares dictionaries with the configuration.
+        var copy = JsonSerializer.Deserialize<IslandSnapshot>(JsonSerializer.Serialize(snap))!;
+        var options = new PlanOptions
+        {
+            AllowGathering = Configuration.AllowGathering,
+            PrioritizeFavors = Configuration.PrioritizeFavors,
+        };
+        var gather = Gatherable;
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
             {
-                AllowGathering = Configuration.AllowGathering,
-                PrioritizeFavors = Configuration.PrioritizeFavors,
-            }, Gatherable);
-        }
-        catch (Exception ex)
+                var forecasts = WeekPlanner.Forecasts(copy);
+                var week = new WeekPlanner(copy, options, gather, forecasts).Make();
+                Forecasts = forecasts;
+                Week = week;
+            }
+            catch (Exception ex)
+            {
+                Week = null;
+                Log.Error(ex, "Week planner failed");
+            }
+            finally
+            {
+                Planning = false;
+            }
+        }).ContinueWith(_ =>
         {
-            Plan = null;
-            ReadError = "Planner: " + ex.Message;
-            Log.Error(ex, "Planner failed");
-        }
+            if (replanQueued) Framework.RunOnFrameworkThread(() => Replan());
+        });
+    }
+
+    private string Signature(IslandSnapshot s)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append(s.DemandValid).Append('|').Append(s.CycleDay).Append('|').Append(s.Groove).Append('|').Append(s.Rank).Append('|');
+        sb.Append(string.Join(",", s.RestDays)).Append('|').Append(Configuration.AllowGathering).Append(Configuration.PrioritizeFavors).Append('|');
+        foreach (var w in s.Workshops) sb.Append(w.Level).Append(w.UnderConstruction ? 'u' : 'b');
+        foreach (var c in s.Crafts) sb.Append(c.SupplyLevel).Append(c.PopularityPercent);
+        foreach (var p in s.Isleventory) sb.Append(p.Count).Append(',');
+        foreach (var f in s.Favors) sb.Append(f.Delivered).Append(f.Scheduled);
+        foreach (var season in s.SupplyHistory) sb.Append(season.Key).Append(season.Value.Count);
+        return sb.ToString();
     }
 
     public string SnapshotFolder => Path.Combine(PluginInterface.GetPluginConfigDirectory(), "snapshots");

@@ -157,48 +157,57 @@ public sealed class MainWindow : Window
         if (changed)
         {
             cfg.Save();
-            plugin.Replan();
+            plugin.Replan(true);
         }
 
-        var plan = plugin.Plan;
+        var plan = plugin.Week;
         if (plan == null)
         {
-            ImGui.TextColored(Muted, "No plan yet.");
+            ImGui.TextColored(Muted, plugin.Planning ? "Planning the week..." : "No plan yet.");
             return;
         }
 
-        if (plan.Cycle >= 0)
-        {
-            ImGui.TextUnformatted($"Recommended agenda for cycle {plan.Cycle + 1} ({DayName(plan.Cycle)})");
-            ImGui.TextColored(Good, $"About {plan.Total:N0} cowries. Groove {plugin.Snapshot?.Groove} -> {plan.GrooveAfter}.");
-            ImGui.TextColored(Muted, "In the Isleworks agenda, select that cycle and add these to each workshop from the top down.");
-        }
+        if (plugin.Planning) { ImGui.SameLine(); ImGui.TextColored(Muted, "(updating...)"); }
 
         foreach (var n in plan.Notes) ImGui.TextColored(Warn, n);
-        if (plan.SkippedForMaterials.Count > 0)
-        {
-            var names = plan.SkippedForMaterials.ToList();
-            var shown = string.Join(", ", names.Take(3)) + (names.Count > 3 ? $" and {names.Count - 3} more" : string.Empty);
-            ImGui.TextColored(Warn, $"Not enough materials on hand for {names.Count} craft(s): {shown}.");
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip(string.Join("\n", names));
-            if (!cfg.AllowGathering)
-                ImGui.TextColored(Muted, "Tick \"Count materials I can still gather\" to include them (hover the line above for the full list).");
-        }
-        if (plan.FavorItemsBoosted.Count > 0)
-            ImGui.TextColored(Muted, "Favor items pushed: " + string.Join(", ", plan.FavorItemsBoosted));
+        if (plan.Days.Count == 0) return;
 
+        var range = plan.Days.Count == 1 ? $"cycle {plan.Days[0].Cycle + 1}" : $"cycles {string.Join(", ", plan.Days.Select(d => d.Cycle + 1))}";
+        ImGui.TextColored(Good, $"This week: about {plan.Total:N0} cowries over {range}. Groove {plugin.Snapshot?.Groove} -> {plan.GrooveAfter}.");
+        ImGui.TextColored(Muted, $"Peaks: {plan.PeaksKnown} known, {plan.PeaksPartly} narrowed down, {plan.PeaksUnknown} unknown. Open the Isleworks agenda once each cycle to sharpen the forecast.");
+        if (plan.RestAdvice != null) ImGui.TextColored(Warn, plan.RestAdvice);
+        if (plan.FavorItemsBoosted.Count > 0)
+            ImGui.TextColored(Muted, "Felicitous Favors: " + string.Join(", ", plan.FavorItemsBoosted));
+
+        for (var i = 0; i < plan.Days.Count; i++)
+        {
+            var day = plan.Days[i];
+            ImGui.Spacing();
+            var title = $"Cycle {day.Cycle + 1} ({DayName(day.Cycle)}): about {day.Total:N0} cowries" + (i == 0 ? "  - set this one now" : "  - preview");
+            if (!ImGui.CollapsingHeader($"{title}###day{day.Cycle}", i == 0 ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None)) continue;
+            if (i > 0) ImGui.TextColored(Muted, "Later cycles get re-planned as each item's peak is confirmed, so check back before setting them.");
+            DrawDay(day);
+        }
+
+        if (plan.Shortfalls.Count > 0)
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(Warn, "Gather for this week's plan:");
+            foreach (var sf in plan.Shortfalls)
+                ImGui.BulletText($"{sf.Need - sf.Have} {sf.Name} (have {sf.Have}, plan uses {sf.Need})" + (sf.Gatherable ? string.Empty : " - not gatherable!"));
+        }
+    }
+
+    private static void DrawDay(DayPlan day)
+    {
         // Workshops with the same agenda are shown once.
-        var groups = plan.Workshops
-            .GroupBy(w => string.Join("|", w.Crafts.Select(c => c.Craft.Id)))
-            .ToList();
-        foreach (var g in groups)
+        foreach (var g in day.Workshops.GroupBy(w => string.Join("|", w.Crafts.Select(c => c.Craft.Id))))
         {
             var list = g.ToList();
             var first = list[0];
-            ImGui.Spacing();
             var label = list.Count == 1 ? $"Workshop {first.Workshop}" : "Workshops " + string.Join(", ", list.Select(w => w.Workshop));
             ImGui.TextUnformatted($"{label}  ({first.Hours} h, about {list.Sum(w => w.Total):N0} cowries)");
-            if (!ImGui.BeginTable($"##plan{first.Workshop}", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders)) continue;
+            if (!ImGui.BeginTable($"##plan{day.Cycle}_{first.Workshop}", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders)) continue;
             ImGui.TableSetupColumn("Start", ImGuiTableColumnFlags.WidthFixed, 60);
             ImGui.TableSetupColumn("Item");
             ImGui.TableSetupColumn("Hours", ImGuiTableColumnFlags.WidthFixed, 50);
@@ -217,17 +226,6 @@ public sealed class MainWindow : Window
 
             ImGui.EndTable();
         }
-
-        if (plan.Shortfalls.Count > 0)
-        {
-            ImGui.Spacing();
-            ImGui.TextColored(Warn, "Gather before the cycle starts:");
-            foreach (var sf in plan.Shortfalls)
-                ImGui.BulletText($"{sf.Need - sf.Have} {sf.Name} (have {sf.Have}, plan uses {sf.Need})" + (sf.Gatherable ? string.Empty : " - not gatherable!"));
-        }
-
-        ImGui.Spacing();
-        ImGui.TextColored(Muted, "Uses today's Supply & Demand. Predicting each item's peak day (and the best rest day) comes next.");
     }
 
     private static string DayName(int cycleDay) =>
@@ -252,10 +250,10 @@ public sealed class MainWindow : Window
     {
         ImGui.Checkbox("Only crafts my rank allows", ref availableOnly);
         var crafts = s.Crafts.Where(c => !availableOnly || c.Available).ToList();
-        if (!ImGui.BeginTable("##crafts", 8, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY))
+        if (!ImGui.BeginTable("##crafts", 9, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY))
             return;
         ImGui.TableSetupScrollFreeze(0, 1);
-        foreach (var h in new[] { "Item", "Rank", "Hours", "Value", "Themes", "Materials", "Supply / demand", "Popularity (next)" })
+        foreach (var h in new[] { "Item", "Rank", "Hours", "Value", "Themes", "Materials", "Supply / demand", "Popularity (next)", "Peak" })
             ImGui.TableSetupColumn(h);
         ImGui.TableHeadersRow();
         foreach (var c in crafts)
@@ -269,6 +267,7 @@ public sealed class MainWindow : Window
             Cell(string.Join(", ", c.Materials.Select(m => $"{m.Amount}x {m.Name}")));
             Cell(c.Supply.Length == 0 ? "-" : $"{c.Supply} / {c.DemandShift}");
             Cell(c.Popularity.Length == 0 ? "-" : $"{c.Popularity} ({c.NextPopularity})");
+            Cell(plugin.Forecasts.TryGetValue(c.Id, out var f) ? PeakModel.Describe(f) : "-");
         }
 
         ImGui.EndTable();
