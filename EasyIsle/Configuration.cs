@@ -14,6 +14,9 @@ public class Configuration : IPluginConfiguration
 
     public DateTime LastIsleventoryUtc { get; set; }
 
+    /// <summary>Season start (yyyy-MM-dd, Tuesday reset) -> cycle (0-6) -> craft id -> supply/demand byte.</summary>
+    public Dictionary<string, Dictionary<int, Dictionary<uint, int>>> SupplyHistory { get; set; } = [];
+
     public bool AllowGathering { get; set; } = true;
 
     public bool PrioritizeFavors { get; set; }

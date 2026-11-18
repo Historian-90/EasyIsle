@@ -52,6 +52,9 @@ public class Plan
     public List<Shortfall> Shortfalls { get; } = [];
     public List<string> Notes { get; } = [];
     public List<string> FavorItemsBoosted { get; } = [];
+
+    /// <summary>Crafts left out because the materials on hand can't cover them.</summary>
+    public SortedSet<string> SkippedForMaterials { get; } = [];
     public int Total => Workshops.Sum(w => w.Total);
     public int GrooveAfter { get; set; }
 }
@@ -125,7 +128,7 @@ public static class Planner
                 var blocker = FindBlocker(chain, stock, used, gatherablePouchIds, options.AllowGathering);
                 if (blocker == 0) break;
                 banned.Add(blocker);
-                plan.Notes.Add($"Workshop {w + 1}: skipped {crafts.First(c => c.Id == blocker).Name}, not enough materials on hand.");
+                plan.SkippedForMaterials.Add(crafts.First(c => c.Id == blocker).Name);
                 chain = null;
             }
 

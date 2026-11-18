@@ -175,6 +175,15 @@ public sealed class MainWindow : Window
         }
 
         foreach (var n in plan.Notes) ImGui.TextColored(Warn, n);
+        if (plan.SkippedForMaterials.Count > 0)
+        {
+            var names = plan.SkippedForMaterials.ToList();
+            var shown = string.Join(", ", names.Take(3)) + (names.Count > 3 ? $" and {names.Count - 3} more" : string.Empty);
+            ImGui.TextColored(Warn, $"Not enough materials on hand for {names.Count} craft(s): {shown}.");
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(string.Join("\n", names));
+            if (!cfg.AllowGathering)
+                ImGui.TextColored(Muted, "Tick \"Count materials I can still gather\" to include them (hover the line above for the full list).");
+        }
         if (plan.FavorItemsBoosted.Count > 0)
             ImGui.TextColored(Muted, "Favor items pushed: " + string.Join(", ", plan.FavorItemsBoosted));
 

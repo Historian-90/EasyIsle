@@ -76,10 +76,43 @@ public sealed unsafe class IslandReader
         ReadPasture(mgr, snap);
         ReadFavors(mgr, snap);
         ReadSchedule(snap);
+        RecordSupply(mgr, snap);
 
         if (!snap.DemandValid)
             snap.Problems.Add("Supply & Demand isn't loaded yet: open the Isleworks agenda once.");
         return snap;
+    }
+
+    /// <summary>Weekly reset: Tuesday 08:00 UTC.</summary>
+    public static DateTime SeasonStartUtc(DateTime nowUtc)
+    {
+        var daysSince = ((int)nowUtc.DayOfWeek - (int)DayOfWeek.Tuesday + 7) % 7;
+        var start = nowUtc.Date.AddDays(-daysSince).AddHours(8);
+        return start > nowUtc ? start.AddDays(-7) : start;
+    }
+
+    /// <summary>Keeps the first Supply &amp; Demand reading of each cycle, so peaks can be worked out later.</summary>
+    private void RecordSupply(MJIManager* mgr, IslandSnapshot snap)
+    {
+        if (snap.DemandValid)
+        {
+            var season = SeasonStartUtc(DateTime.UtcNow).ToString("yyyy-MM-dd");
+            if (!config.SupplyHistory.TryGetValue(season, out var cycles))
+                config.SupplyHistory[season] = cycles = [];
+            if (!cycles.ContainsKey(snap.CycleDay))
+            {
+                var shifts = mgr->SupplyAndDemandShifts;
+                var day = new Dictionary<uint, int>();
+                foreach (var c in snap.Crafts)
+                    if (c.Id < shifts.Length) day[c.Id] = shifts[(int)c.Id];
+                cycles[snap.CycleDay] = day;
+                foreach (var old in config.SupplyHistory.Keys.OrderByDescending(k => k).Skip(4).ToList())
+                    config.SupplyHistory.Remove(old);
+                config.Save();
+            }
+        }
+
+        snap.SupplyHistory = config.SupplyHistory;
     }
 
     private static Building FromFarmPasture(MJIFarmPasture fp) => new()

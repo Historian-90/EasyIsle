@@ -60,6 +60,9 @@ public class IslandSnapshot
 
     public List<string> Problems { get; set; } = [];
 
+    /// <summary>Supply &amp; demand bytes recorded at the first read of each cycle: season start (yyyy-MM-dd) -> cycle (0-6) -> craft -> byte.</summary>
+    public Dictionary<string, Dictionary<int, Dictionary<uint, int>>> SupplyHistory { get; set; } = [];
+
     /// <summary>Hex dump of IslandState (offset 0x00 onward), for working out fields the struct map gets wrong.</summary>
     public string RawIslandState { get; set; } = string.Empty;
 }
