@@ -200,9 +200,15 @@ public sealed unsafe class IslandReader
         var agent = AgentMJIPouch.Instance();
         if (agent != null && agent->InventoryData != null)
         {
-            live = [];
+            // Match by game item id. RowId isn't an MJIItemPouch row for every entry: the Tools tab
+            // numbers its own rows from 1, which overwrote the first materials with a count of 1.
+            var byItem = new Dictionary<uint, int>();
             foreach (var item in agent->InventoryData->Inventory.AsSpan())
-                live[item.RowId] = item.StackSize;
+                if (item.ItemId != 0) byItem[item.ItemId] = item.StackSize;
+            live = [];
+            foreach (var row in sheet)
+                if (row.RowId != 0 && row.Item.RowId != 0 && byItem.TryGetValue(row.Item.RowId, out var count))
+                    live[row.RowId] = count;
             if (live.Count == 0) live = null;
         }
 
