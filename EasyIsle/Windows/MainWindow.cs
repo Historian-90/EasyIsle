@@ -198,7 +198,7 @@ public sealed class MainWindow : Window
         }
     }
 
-    private static void DrawDay(DayPlan day)
+    private void DrawDay(DayPlan day)
     {
         // Workshops with the same agenda are shown once.
         foreach (var g in day.Workshops.GroupBy(w => string.Join("|", w.Crafts.Select(c => c.Craft.Id))))
@@ -207,6 +207,18 @@ public sealed class MainWindow : Window
             var first = list[0];
             var label = list.Count == 1 ? $"Workshop {first.Workshop}" : "Workshops " + string.Join(", ", list.Select(w => w.Workshop));
             ImGui.TextUnformatted($"{label}  ({first.Hours} h, about {list.Sum(w => w.Total):N0} cowries)");
+            ImGui.SameLine();
+            var canCopy = AgendaClipboard.Available;
+            if (!canCopy) ImGui.BeginDisabled();
+            if (ImGui.SmallButton($"Copy for the game##copy{day.Cycle}_{first.Workshop}"))
+            {
+                var error = AgendaClipboard.Copy(first.Crafts);
+                status = error ?? $"Copied. In the agenda, right-click {(list.Count == 1 ? $"workshop {first.Workshop}" : "each of workshops " + string.Join(", ", list.Select(w => w.Workshop)))} on cycle {day.Cycle + 1} and choose Apply Copied Agenda.";
+            }
+
+            if (!canCopy) ImGui.EndDisabled();
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip(canCopy ? "Puts this agenda in the game's agenda clipboard. Paste it with right-click > Apply Copied Agenda." : "Open the Isleworks agenda to copy.");
             if (!ImGui.BeginTable($"##plan{day.Cycle}_{first.Workshop}", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders)) continue;
             ImGui.TableSetupColumn("Start", ImGuiTableColumnFlags.WidthFixed, 60);
             ImGui.TableSetupColumn("Item");
