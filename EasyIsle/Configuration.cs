@@ -35,6 +35,9 @@ public class Configuration : IPluginConfiguration
     /// <summary>The island's Cave System map row, learned from the game's map window.</summary>
     public uint IslandCaveMap { get; set; }
 
+    /// <summary>Keep reading the island every few seconds while the window is open.</summary>
+    public bool AutoRefresh { get; set; } = true;
+
     /// <summary>Today's week plan, kept so it doesn't change under you.</summary>
     public WeekLock? WeekLock { get; set; }
 

@@ -4,23 +4,30 @@ using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
+using Dalamud.Interface.Components;
 using Dalamud.Interface.Windowing;
 
 namespace EasyIsle.Windows;
 
 /// <summary>
-/// For now: a view of everything EasyIsle can read about the island, so we can check each data
-/// source in game before the planner is built on top of it.
+/// EasyIsle's window, laid out like Outer Voice: a status header, an icon rail on the left and one
+/// page at a time on the right.
 /// </summary>
 public sealed class MainWindow : Window
 {
     private static readonly Vector4 Muted = new(0.65f, 0.65f, 0.65f, 1f);
     private static readonly Vector4 Warn = new(1f, 0.75f, 0.35f, 1f);
+    private static readonly Vector4 Bad = new(1f, 0.45f, 0.45f, 1f);
     private static readonly Vector4 Good = new(0.55f, 0.9f, 0.55f, 1f);
+    private static readonly Vector4 Accent = new(0.55f, 0.42f, 0.85f, 1f);
+    private const float RailWidth = 46f;
+
+    private enum Page { Plan, Cropland, Pasture, Granary, Find, Island, Settings }
 
     private readonly Plugin plugin;
+    private Page page = Page.Plan;
     private DateTime lastRead = DateTime.MinValue;
-    private bool autoRefresh = true;
     private bool availableOnly = true;
     private bool discoveredOnly = true;
     private string status = string.Empty;
@@ -28,8 +35,8 @@ public sealed class MainWindow : Window
     public MainWindow(Plugin plugin) : base("EasyIsle###EasyIsleMain")
     {
         this.plugin = plugin;
-        SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(620, 400) };
-        Size = new Vector2(860, 620);
+        SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(680, 420) };
+        Size = new Vector2(920, 640);
         SizeCondition = ImGuiCond.FirstUseEver;
     }
 
@@ -37,66 +44,162 @@ public sealed class MainWindow : Window
 
     public override void Draw()
     {
-        if (autoRefresh && DateTime.UtcNow - lastRead > TimeSpan.FromSeconds(3))
+        if (plugin.Configuration.AutoRefresh && DateTime.UtcNow - lastRead > TimeSpan.FromSeconds(3))
         {
             plugin.Refresh();
             lastRead = DateTime.UtcNow;
         }
 
-        if (ImGui.Button("Refresh")) plugin.Refresh();
-        ImGui.SameLine();
-        ImGui.Checkbox("Auto", ref autoRefresh);
-        ImGui.SameLine();
-        if (ImGui.Button("Copy snapshot"))
-        {
-            ImGui.SetClipboardText(plugin.SnapshotJson());
-            status = "Snapshot copied to the clipboard.";
-        }
-
-        ImGui.SameLine();
-        if (ImGui.Button("Save snapshot"))
-        {
-            try { status = "Saved " + plugin.SaveSnapshot(); }
-            catch (Exception ex) { status = "Couldn't save: " + ex.Message; }
-        }
-
-        ImGui.SameLine();
-        if (ImGui.Button("Open snapshots folder"))
-        {
-            try
-            {
-                System.IO.Directory.CreateDirectory(plugin.SnapshotFolder);
-                Process.Start(new ProcessStartInfo { FileName = plugin.SnapshotFolder, UseShellExecute = true });
-            }
-            catch (Exception ex) { status = "Couldn't open folder: " + ex.Message; }
-        }
-
-        if (status.Length > 0) ImGui.TextColored(Muted, status);
-        if (plugin.ReadError != null) ImGui.TextColored(Warn, "Read error: " + plugin.ReadError);
-
-        var s = plugin.Snapshot;
-        if (s == null)
-        {
-            ImGui.TextUnformatted("No data yet.");
-            return;
-        }
-
+        DrawHeader();
         ImGui.Separator();
-        if (!ImGui.BeginTabBar("##tabs")) return;
-        Tab("Plan", DrawPlan);
-        Tab("Cropland", DrawCropland);
-        Tab("Pasture", DrawPasture);
-        Tab("Find", () => DrawFind(s));
-        Tab("Island", () => DrawIsland(s));
-        Tab($"Crafts ({s.Crafts.Count(c => c.Available)})", () => DrawCrafts(s));
-        Tab("Isleventory", () => DrawIsleventory(s));
-        Tab("Granary, crops, animals", () => DrawProduce(s));
-        Tab("Favors", () => DrawFavors(s));
-        Tab("Agenda", () => DrawAgenda(s));
+
+        ImGui.BeginChild("##rail", new Vector2(RailWidth, 0));
+        RailButton(Page.Plan, FontAwesomeIcon.ClipboardList, "Plan\nThis week's workshop agendas, ready to paste into the game.");
+        RailButton(Page.Cropland, FontAwesomeIcon.Seedling, "Cropland\nWhat to plant where, and feed.");
+        RailButton(Page.Pasture, FontAwesomeIcon.Paw, "Pasture\nWhich animals to keep, catch and release.");
+        RailButton(Page.Granary, FontAwesomeIcon.Ship, "Granary\nWhere to send your expeditions.");
+        RailButton(Page.Find, FontAwesomeIcon.MapMarkedAlt, "Find\nWhere to gather materials and seeds and catch animals, with map flags.");
+        RailButton(Page.Island, FontAwesomeIcon.Home, "Island\nEverything EasyIsle reads about your island.");
+        RailButton(Page.Settings, FontAwesomeIcon.Cog, "Settings\nRefreshing and troubleshooting.");
+        ImGui.EndChild();
+
+        ImGui.SameLine();
+        ImGui.BeginChild("##page", Vector2.Zero);
+        var s = plugin.Snapshot;
+        if (s == null && page != Page.Settings)
+            Note("Nothing read yet. Head to your island and open this window there.");
+        else
+            switch (page)
+            {
+                case Page.Plan: DrawPlan(); break;
+                case Page.Cropland: DrawCropland(); break;
+                case Page.Pasture: DrawPasture(); break;
+                case Page.Granary: DrawGranaryAdvice(); break;
+                case Page.Find: DrawFind(s!); break;
+                case Page.Island: DrawIslandPage(s!); break;
+                case Page.Settings: DrawSettings(); break;
+            }
+
+        ImGui.EndChild();
+    }
+
+    private void RailButton(Page target, FontAwesomeIcon icon, string tooltip)
+    {
+        var active = page == target;
+        var size = new Vector2(RailWidth - 8, RailWidth - 8);
+        var clicked = active
+            ? ImGuiComponents.IconButton((int)target, icon, Accent, Accent, Accent, size)
+            : ImGuiComponents.IconButton((int)target, icon, new Vector4(0, 0, 0, 0), null, null, size);
+        if (clicked) page = target;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(tooltip);
+        ImGui.Spacing();
+    }
+
+    // ---- Header: the island at a glance ---------------------------------------------------------
+
+    private void DrawHeader()
+    {
+        var s = plugin.Snapshot;
+        if (ImGuiComponents.IconButton("##refresh", FontAwesomeIcon.Sync)) plugin.Refresh();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Read the island again now.");
+        ImGui.SameLine();
+        ImGui.AlignTextToFramePadding();
+        if (s == null)
+            ImGui.TextColored(Bad, "No island data yet");
+        else if (!s.OnIsland)
+            ImGui.TextColored(Muted, $"Rank {s.Rank}  ·  not on your island (showing the last reading)");
+        else
+            ImGui.TextColored(Good, $"Rank {s.Rank}  ·  Cycle {s.CycleDay + 1} ({DayName(s.CycleDay)})  ·  Groove {s.Groove}/{s.GrooveMax}");
+
+        if (s != null && s.Problems.Count > 0)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(Warn, $"  {s.Problems.Count} thing(s) to load");
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(string.Join("\n", s.Problems));
+        }
+
+        if (plugin.Planning)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(Muted, "  planning...");
+        }
+
+        // Right side: Eorzea time and the island's weather.
+        var now = DateTimeOffset.UtcNow;
+        var weather = IslandClock.WeatherAt(plugin.IslandWeather, now);
+        var right = $"ET {IslandClock.EorzeaClock(now)}" + (weather != null ? $"  ·  {weather.Name}" : string.Empty);
+        var width = ImGui.CalcTextSize(right).X;
+        ImGui.SameLine(Math.Max(ImGui.GetCursorPosX() + 10, ImGui.GetWindowContentRegionMax().X - width));
+        ImGui.TextColored(Muted, right);
+
+        if (plugin.ReadError != null) Colored(Bad, "Couldn't read the island: " + plugin.ReadError);
+        if (status.Length > 0) Colored(Muted, status);
+    }
+
+    // ---- Settings -------------------------------------------------------------------------------
+
+    private void DrawSettings()
+    {
+        var cfg = plugin.Configuration;
+        if (Group("Refreshing"))
+        {
+            var auto = cfg.AutoRefresh;
+            if (ImGui.Checkbox("Keep reading the island while this window is open", ref auto))
+            {
+                cfg.AutoRefresh = auto;
+                cfg.Save();
+            }
+
+            HelpMarker("Every few seconds. Off: only when the window opens or you press the refresh button in the header.");
+        }
+
+        if (Group("Troubleshooting", false))
+        {
+            Note("A snapshot is everything EasyIsle read about your island, as text. Handy when something looks wrong.");
+            if (ImGui.Button("Copy snapshot"))
+            {
+                ImGui.SetClipboardText(plugin.SnapshotJson());
+                status = "Snapshot copied to the clipboard.";
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Save snapshot"))
+            {
+                try { status = "Saved " + plugin.SaveSnapshot(); }
+                catch (Exception ex) { status = "Couldn't save: " + ex.Message; }
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Open snapshots folder"))
+            {
+                try
+                {
+                    System.IO.Directory.CreateDirectory(plugin.SnapshotFolder);
+                    Process.Start(new ProcessStartInfo { FileName = plugin.SnapshotFolder, UseShellExecute = true });
+                }
+                catch (Exception ex) { status = "Couldn't open folder: " + ex.Message; }
+            }
+
+            if (plugin.Snapshot is { } s && ImGui.CollapsingHeader("Raw island data"))
+                DrawRaw(s);
+        }
+    }
+
+    // ---- Island page: what EasyIsle reads ------------------------------------------------------
+
+    private void DrawIslandPage(IslandSnapshot s)
+    {
+        if (!ImGui.BeginTabBar("##islandtabs")) return;
+        SubTab("Overview", () => DrawIsland(s));
+        SubTab($"Crafts ({s.Crafts.Count(c => c.Available)})", () => DrawCrafts(s));
+        SubTab("Isleventory", () => DrawIsleventory(s));
+        SubTab("Granary, crops, animals", () => DrawProduce(s));
+        SubTab("Favors", () => DrawFavors(s));
+        SubTab("Agenda", () => DrawAgenda(s));
         ImGui.EndTabBar();
     }
 
-    private static void Tab(string label, Action draw)
+    private static void SubTab(string label, Action draw)
     {
         if (!ImGui.BeginTabItem(label)) return;
         if (ImGui.BeginChild("##tabbody")) draw();
@@ -104,25 +207,88 @@ public sealed class MainWindow : Window
         ImGui.EndTabItem();
     }
 
+    // ---- Shared look ----------------------------------------------------------------------------
+
+    /// <summary>Wrapped, coloured text (wraps at the window or table cell edge).</summary>
+    private static void Colored(Vector4 color, string text)
+    {
+        ImGui.PushTextWrapPos(0);
+        ImGui.TextColored(color, text);
+        ImGui.PopTextWrapPos();
+    }
+
+    private static void Plain(string text)
+    {
+        ImGui.PushTextWrapPos(0);
+        ImGui.TextUnformatted(text);
+        ImGui.PopTextWrapPos();
+    }
+
+    private static void Note(string text) => Colored(Muted, text);
+
+    /// <summary>A muted capitals heading with a rule under it (and an optional (?) beside it).</summary>
+    private static void Section(string title, string? help = null)
+    {
+        ImGui.Spacing();
+        ImGui.TextColored(Muted, title.ToUpperInvariant());
+        if (help != null) HelpMarker(help);
+        ImGui.Separator();
+    }
+
+    /// <summary>A collapsible group tinted with the accent colour.</summary>
+    private static bool Group(string title, bool openByDefault = true)
+    {
+        ImGui.Spacing();
+        ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(Accent.X, Accent.Y, Accent.Z, 0.35f));
+        var open = ImGui.CollapsingHeader(title, openByDefault ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None);
+        ImGui.PopStyleColor();
+        return open;
+    }
+
+    /// <summary>A small map-pin button (the game's flag goes on the spot).</summary>
+    private static bool MapButton(string id)
+    {
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(4, 1));
+        var clicked = ImGuiComponents.IconButton($"##map{id}", FontAwesomeIcon.MapMarkerAlt);
+        ImGui.PopStyleVar();
+        return clicked;
+    }
+
+    private static void HelpMarker(string text)
+    {
+        ImGui.SameLine();
+        ImGui.TextColored(Muted, "(?)");
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.BeginTooltip();
+            ImGui.PushTextWrapPos(ImGui.GetFontSize() * 30);
+            ImGui.TextUnformatted(text);
+            ImGui.PopTextWrapPos();
+            ImGui.EndTooltip();
+        }
+    }
+
     private static void DrawIsland(IslandSnapshot s)
     {
         if (s.Problems.Count > 0)
         {
-            ImGui.TextColored(Warn, "Missing data:");
+            Colored(Warn, "Missing data:");
             foreach (var p in s.Problems) ImGui.BulletText(p);
             ImGui.Spacing();
         }
         else
         {
-            ImGui.TextColored(Good, "Everything EasyIsle needs is loaded.");
+            Colored(Good, "Everything EasyIsle needs is loaded.");
         }
 
+        Section("Island");
         Row("On the island", s.OnIsland ? "yes" : "no");
         Row("Island rank", $"{s.Rank} ({s.Xp:N0} xp)");
         Row("Groove", $"{s.Groove} / {s.GrooveMax}");
         Row("Cycle day", $"{s.CycleDay + 1} of 7 ({DayName(s.CycleDay)})");
         Row("Rest days", s.RestDays.Count == 0 ? "not loaded" : string.Join(", ", s.RestDays.Select(d => d < 7 ? $"{DayName(d)} (this week)" : $"{DayName(d - 7)} (next week)")));
         Row("Supply & Demand", s.DemandValid ? $"loaded (popularity set {s.PopularityRow}, next {s.NextPopularityRow})" : "not loaded");
+        Section("Buildings");
         Row("Cabin level", s.CabinLevel.ToString());
         for (var i = 0; i < s.Workshops.Count; i++)
             Row($"Workshop {i + 1}", s.Workshops[i].Placed ? $"Workshop {Roman(s.Workshops[i].Level + 1)}" + (s.Workshops[i].UnderConstruction ? ", under construction" : string.Empty) : "not built");
@@ -137,19 +303,19 @@ public sealed class MainWindow : Window
         Row("Cropland", Describe(s.Farm));
         Row("Pasture", Describe(s.Pasture));
 
-        ImGui.Spacing();
-        if (ImGui.CollapsingHeader("Raw island data (for debugging)"))
-        {
-            ImGui.TextColored(Muted, "Offset  bytes");
-            for (var i = 0; i < s.RawIslandState.Length; i += 32)
-            {
-                var line = s.RawIslandState.Substring(i, Math.Min(32, s.RawIslandState.Length - i));
-                var spaced = string.Join(" ", Enumerable.Range(0, line.Length / 2).Select(b => line.Substring(b * 2, 2)));
-                ImGui.TextUnformatted($"{i / 2:X4}    {spaced}");
-            }
+    }
 
-            if (ImGui.Button("Copy raw data")) ImGui.SetClipboardText(s.RawIslandState);
+    private static void DrawRaw(IslandSnapshot s)
+    {
+        Colored(Muted, "Offset  bytes");
+        for (var i = 0; i < s.RawIslandState.Length; i += 32)
+        {
+            var line = s.RawIslandState.Substring(i, Math.Min(32, s.RawIslandState.Length - i));
+            var spaced = string.Join(" ", Enumerable.Range(0, line.Length / 2).Select(b => line.Substring(b * 2, 2)));
+            Plain($"{i / 2:X4}    {spaced}");
         }
+
+        if (ImGui.Button("Copy raw data")) ImGui.SetClipboardText(s.RawIslandState);
     }
 
     private static string Roman(int n) => n switch { 1 => "I", 2 => "II", 3 => "III", 4 => "IV", 5 => "V", _ => n.ToString() };
@@ -160,10 +326,13 @@ public sealed class MainWindow : Window
         var changed = false;
         var gather = cfg.AllowGathering;
         if (ImGui.Checkbox("Count materials I can still gather", ref gather)) { cfg.AllowGathering = gather; changed = true; }
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("On: the plan may use gatherable materials you're short on, and lists what to gather.\nOff: only what's in your isleventory right now.");
+        HelpMarker("On: the plan may use gatherable materials you're short on, and lists what to gather.\nOff: only what's in your isleventory right now.");
+        ImGui.SameLine();
+        ImGui.Dummy(new Vector2(12, 0));
         ImGui.SameLine();
         var favors = cfg.PrioritizeFavors;
         if (ImGui.Checkbox("Prioritize Felicitous Favors", ref favors)) { cfg.PrioritizeFavors = favors; changed = true; }
+        HelpMarker("Fits the Felicitous Favors items into the plan even when something else would earn a few more cowries.");
         if (changed)
         {
             cfg.Save();
@@ -173,43 +342,38 @@ public sealed class MainWindow : Window
         var plan = plugin.Week;
         if (plan == null)
         {
-            ImGui.TextColored(Muted, plugin.Planning ? "Planning the week..." : "No plan yet.");
+            Note(plugin.Planning ? "Planning the week..." : "No plan yet.");
             return;
         }
 
-        if (plugin.Planning) { ImGui.SameLine(); ImGui.TextColored(Muted, "(updating...)"); }
-
-        foreach (var n in plan.Notes) ImGui.TextColored(Warn, n);
+        foreach (var n in plan.Notes) Colored(Warn, n);
         if (plan.Days.Count == 0) return;
 
         var range = plan.Days.Count == 1 ? $"cycle {plan.Days[0].Cycle + 1}" : $"cycles {string.Join(", ", plan.Days.Select(d => d.Cycle + 1))}";
-        ImGui.TextColored(Good, $"This week: about {plan.Total:N0} cowries over {range}. Groove {plugin.Snapshot?.Groove} -> {plan.GrooveAfter}.");
-        ImGui.TextColored(Muted, "This plan stays put for today; it's re-planned once a day with the new Supply & Demand reading.");
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Re-plan now")) plugin.NewWeekPlan();
-        ImGui.TextColored(Muted, $"Peaks: {plan.PeaksKnown} known, {plan.PeaksPartly} narrowed down, {plan.PeaksUnknown} unknown. Open the Isleworks agenda once each cycle to sharpen the forecast.");
-        if (plan.RestAdvice != null) ImGui.TextColored(Warn, plan.RestAdvice);
-        if (plan.FavorItemsBoosted.Count > 0)
-            ImGui.TextColored(Muted, "Felicitous Favors: " + string.Join(", ", plan.FavorItemsBoosted));
+        Section("This week",
+            "The plan stays put for today and is re-planned once a day with the new Supply & Demand reading.\n\n" +
+            $"Peaks: {plan.PeaksKnown} known, {plan.PeaksPartly} narrowed down, {plan.PeaksUnknown} unknown. Open the Isleworks agenda once each cycle to sharpen the forecast.");
+        Colored(Good, $"About {plan.Total:N0} cowries over {range}. Groove {plugin.Snapshot?.Groove} > {plan.GrooveAfter}.");
+        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Redo, "Re-plan now")) plugin.NewWeekPlan();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Throw away today's plan and work out a fresh one.");
+        if (plan.RestAdvice != null) Colored(Warn, plan.RestAdvice);
+        if (plan.FavorItemsBoosted.Count > 0) Note("Felicitous Favors: " + string.Join(", ", plan.FavorItemsBoosted));
 
         for (var i = 0; i < plan.Days.Count; i++)
         {
             var day = plan.Days[i];
-            ImGui.Spacing();
-            var title = $"Cycle {day.Cycle + 1} ({DayName(day.Cycle)}): about {day.Total:N0} cowries" + (i == 0 ? "  - set this one now" : "  - preview");
-            if (!ImGui.CollapsingHeader($"{title}###day{day.Cycle}", i == 0 ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None)) continue;
-            if (i > 0) ImGui.TextColored(Muted, "Later cycles get re-planned as each item's peak is confirmed, so check back before setting them.");
+            var title = $"Cycle {day.Cycle + 1} ({DayName(day.Cycle)}): about {day.Total:N0} cowries" + (i == 0 ? "  -  set this one now" : "  -  preview");
+            if (!Group($"{title}###day{day.Cycle}", i == 0)) continue;
+            if (i > 0) Note("Later cycles get re-planned as each item's peak is confirmed, so check back before setting them.");
             DrawDay(day);
         }
 
-        DrawGranaryAdvice();
-
         if (plan.Shortfalls.Count > 0)
         {
-            ImGui.Spacing();
-            ImGui.TextColored(Warn, "Gather for this week's plan:");
+            Section("Gather for this week");
             foreach (var sf in plan.Shortfalls)
-                ImGui.BulletText($"{sf.Need - sf.Have} {sf.Name} (have {sf.Have}, plan uses {sf.Need})" + (sf.Gatherable ? string.Empty : " - not gatherable!"));
+                Colored(sf.Gatherable ? new Vector4(1, 1, 1, 1) : Warn, $"  {sf.Need - sf.Have} {sf.Name}  (have {sf.Have}, plan uses {sf.Need})" + (sf.Gatherable ? string.Empty : "  -  not gatherable!"));
+            Note("The Find page shows where to gather each one.");
         }
     }
 
@@ -238,57 +402,56 @@ public sealed class MainWindow : Window
         var snap = plugin.Snapshot;
         if (plan == null || snap == null || snap.FarmPlots.Count == 0)
         {
-            ImGui.TextColored(Muted, plugin.Planning ? "Working it out..." : "Cropland data loads on your island. Open your Isleventory once too, so EasyIsle knows your produce and seeds.");
+            Colored(Muted, plugin.Planning ? "Working it out..." : "Cropland data loads on your island. Open your Isleventory once too, so EasyIsle knows your produce and seeds.");
             return;
         }
 
-        foreach (var a in plan.Alerts) ImGui.TextColored(Warn, a);
+        foreach (var a in plan.Alerts) Colored(Warn, a);
         if (plan.Alerts.Count > 0) ImGui.Spacing();
 
         highlightCrop = nextHighlight;
         nextHighlight = 0;
+        Section("Plots", "Seed icon: plant that seed here. Crop icon: growing.\nOrange border: still to plant (hover a crop in the planting list to light up its plots).\nTop-right number: produce waiting with the gardener.\nLaid out like your cropland, plot 1 bottom right.");
         DrawPlotGrid(plan, snap);
 
         var changes = plan.Plots.Where(p => p.Change).ToList();
-        ImGui.Spacing();
-        ImGui.TextColored(Muted, "The planting list stays put until those plots are planted.");
-        ImGui.SameLine();
-        if (ImGui.SmallButton("New planting list")) plugin.NewCropPlan();
+        Section("Planting list", "The list stays put until those plots are planted.\nCrops your workshops or feed will run short of get plots first; the rest go to whatever you have least of.");
+        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Redo, "New planting list")) plugin.NewCropPlan();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Throw away this list and work out a fresh one.");
         if (changes.Count == 0)
         {
-            ImGui.TextColored(Good, plan.Needs.Count == 0
+            Colored(Good, plan.Needs.Count == 0
                 ? "Open your Isleventory once so EasyIsle knows your produce and seeds."
                 : "Every plot is growing what it should. Nothing to replant.");
         }
         else
         {
             var empty = changes.Count(c => c.Plot.CropPouchId == 0);
-            ImGui.TextUnformatted(empty == changes.Count
+            Plain(empty == changes.Count
                 ? $"Plant {changes.Count} plot(s):"
                 : $"Plant or replant {changes.Count} plot(s) (if the gardener tends one, dismiss it first, then plant and entrust again):");
-            ImGui.TextColored(Muted, "Crops your workshops or feed will run short of get plots first; the rest go to whatever you have least of.");
             // One seed at a time: group plots by what to plant. Hovering a group lights its plots up.
             foreach (var g in changes.GroupBy(c => c.Recommended!.PouchId).OrderBy(g => g.Min(c => PlotLayout.WalkOrder(c.Slot))))
             {
                 var crop = g.First().Recommended!;
-                ImGui.TextUnformatted("  ");
+                Plain("  ");
                 ImGui.SameLine();
                 Icon(crop.SeedIcon != 0 ? crop.SeedIcon : crop.Icon, ImGui.GetTextLineHeight());
                 ImGui.SameLine();
-                ImGui.TextUnformatted($"{crop.Name} ({g.Count()}):");
+                Plain($"{crop.Name} ({g.Count()}):");
                 ImGui.SameLine();
-                ImGui.TextUnformatted("plots " + string.Join(", ", g.Select(c => c.Slot).OrderBy(PlotLayout.WalkOrder)));
+                Plain("plots " + string.Join(", ", g.Select(c => c.Slot).OrderBy(PlotLayout.WalkOrder)));
                 if (ImGui.IsItemHovered()) nextHighlight = crop.PouchId;
                 var replacing = g.Where(c => c.Plot.CropPouchId != 0).ToList();
                 if (replacing.Count > 0)
-                    ImGui.TextColored(Muted, "      replaces " + string.Join(", ", replacing.Select(c => $"{c.Plot.Crop} on {c.Slot}")));
+                    Colored(Muted, "      replaces " + string.Join(", ", replacing.Select(c => $"{c.Plot.Crop} on {c.Slot}")));
             }
         }
 
-        ImGui.Spacing();
+        Section("Feed");
         DrawFeed(plan, snap);
 
-        ImGui.Spacing();
+        Section("Crops");
         ImGui.Checkbox("Show every crop", ref showAllCrops);
         if (!ImGui.BeginTable("##crops", 8, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders)) return;
         ImGui.TableSetupColumn("Crop");
@@ -307,7 +470,7 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
             Icon(n.Icon, ImGui.GetTextLineHeight());
             ImGui.SameLine();
-            ImGui.TextUnformatted(n.Name);
+            Plain(n.Name);
             Cell(n.Stock.ToString());
             Cell(n.Waiting > 0 ? n.Waiting.ToString() : "-");
             Cell(n.WorkshopPerWeek >= 0.5 ? n.WorkshopPerWeek.ToString("0") : "-");
@@ -385,13 +548,13 @@ public sealed class MainWindow : Window
             }
         }
 
-        ImGui.SetCursorScreenPos(origin + new Vector2(0, area.Y + gap));
-        ImGui.TextColored(Muted, "Seed icon = plant that seed here. Crop icon = growing. Orange border = still to plant (hover a crop below to light up its plots). Top-right number = produce waiting with the gardener.");
+        ImGui.SetCursorScreenPos(origin + new Vector2(0, area.Y));
+        ImGui.Dummy(new Vector2(area.X, 0));
     }
 
     private void DrawFeed(CropPlan plan, IslandSnapshot snap)
     {
-        ImGui.TextUnformatted($"Pasture: {plan.Animals} animal(s).");
+        Plain($"Pasture: {plan.Animals} animal(s).");
         if (snap.FeedRecipes.Count == 0) return;
         ImGui.SameLine();
         ImGui.SetNextItemWidth(220);
@@ -414,11 +577,11 @@ public sealed class MainWindow : Window
         {
             var crafts = plan.FeedPerWeek / plan.Feed.Yield;
             var mats = string.Join(", ", plan.Feed.Materials.Select(m => $"{m.Amount * crafts:0} {m.Name}"));
-            ImGui.TextColored(Muted, $"About {plan.FeedPerWeek:0} {plan.Feed.OutputName} a week (one per animal per day, {plan.Feed.Yield} per craft) takes {mats}.");
+            Colored(Muted, $"About {plan.FeedPerWeek:0} {plan.Feed.OutputName} a week (one per animal per day, {plan.Feed.Yield} per craft) takes {mats}.");
             if (plan.AnyProducePerWeek > 0)
             {
                 var weeks = plan.SpareProduce / plan.AnyProducePerWeek;
-                ImGui.TextColored(Muted, weeks >= 6
+                Colored(Muted, weeks >= 6
                     ? $"Any produce works, and you have about {plan.SpareProduce:N0} spare (about {weeks:0} weeks of feed), so no plots are set aside for it. Make feed from whatever you have most of."
                     : $"Spare produce covers only about {weeks:0.#} weeks of feed, so some plots grow extra for it (Feed / wk column).");
             }
@@ -431,7 +594,7 @@ public sealed class MainWindow : Window
         var snap = plugin.Snapshot;
         if (p == null || snap == null || snap.AnimalKinds.Count == 0)
         {
-            ImGui.TextColored(Muted, plugin.Planning ? "Working it out..." : "Pasture data loads on your island.");
+            Colored(Muted, plugin.Planning ? "Working it out..." : "Pasture data loads on your island.");
             return;
         }
 
@@ -439,25 +602,23 @@ public sealed class MainWindow : Window
         string Leaves(AnimalKind k) => $"{names.GetValueOrDefault(k.CommonPouchId)} + {names.GetValueOrDefault(k.BonusPouchId)}";
 
         var now = DateTimeOffset.UtcNow;
-        ImGui.TextUnformatted($"Pasture: {p.Owned}/{p.Capacity} animals.");
-        DrawWeather(now);
+        Section($"Pasture: {p.Owned}/{p.Capacity} animals", "Which animals to keep for the leavings this week's agendas use. The pasture only holds so many, so it may suggest swapping one kind for another.\nThis advice stays put until you've made these catches and releases.");
         if (p.Capture.Count == 0 && p.Release.Count == 0)
         {
-            ImGui.TextColored(Good, "Your animals cover what your workshops need. Nothing to catch or release.");
+            Colored(Good, "Your animals cover what your workshops need. Nothing to catch or release.");
         }
         else
         {
-            ImGui.TextColored(Muted, "This advice stays put until you've made these catches and releases.");
-            ImGui.SameLine();
-            if (ImGui.SmallButton("New pasture advice")) plugin.NewPasturePlan();
+            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Redo, "New pasture advice")) plugin.NewPasturePlan();
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Throw away this advice and work out a fresh one.");
         }
 
         foreach (var r in p.Release)
         {
             ImGui.Spacing();
             var who = string.Join(", ", r.Animals.Select(a => a.Nickname.Length > 0 ? $"{a.Nickname} ({a.Species})" : a.Species));
-            ImGui.TextColored(Warn, $"Release {r.Count}: {who}");
-            ImGui.TextColored(Muted, $"    {Leaves(r.Kind)}: {r.Why}.");
+            Colored(Warn, $"Release {r.Count}: {who}");
+            Colored(Muted, $"    {Leaves(r.Kind)}: {r.Why}.");
         }
 
         foreach (var c in p.Capture)
@@ -466,13 +627,13 @@ public sealed class MainWindow : Window
             Icon(c.Kind.Icon, ImGui.GetTextLineHeight());
             ImGui.SameLine();
             var main = c.Spots.FirstOrDefault();
-            ImGui.TextUnformatted($"Catch {c.Count}: {(main != null ? main.Name : $"an animal leaving {Leaves(c.Kind)}")}  ({c.Kind.Size}, {AnimalAdvisor.Restraint(c.Kind.Size)})");
-            ImGui.TextColored(Muted, $"    {Leaves(c.Kind)} {c.Why}.");
+            Plain($"Catch {c.Count}: {(main != null ? main.Name : $"an animal leaving {Leaves(c.Kind)}")}  ({c.Kind.Size}, {AnimalAdvisor.Restraint(c.Kind.Size)})");
+            Colored(Muted, $"    {Leaves(c.Kind)} {c.Why}.");
             if (main != null) DrawSpot(main, "Found", now);
             foreach (var alt in c.Spots.Skip(1)) DrawSpot(alt, "Or " + alt.Name, now);
         }
 
-        ImGui.Spacing();
+        Section("Leavings", "Each animal leaves its common leaving every day, and its bonus leaving 80% of days when Gleeful (fed Premium Island Greenfeed): about 7 + 5.6 a week. The isleventory holds 999 of each.");
         if (ImGui.BeginTable("##leavings", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders))
         {
             ImGui.TableSetupColumn("Leaving");
@@ -487,8 +648,8 @@ public sealed class MainWindow : Window
                 ImGui.TableNextRow();
                 Cell(l.Name);
                 ImGui.TableNextColumn();
-                if (l.AtCap) ImGui.TextColored(Warn, $"{l.Stock} (cap)");
-                else ImGui.TextUnformatted(l.Stock.ToString());
+                if (l.AtCap) Colored(Warn, $"{l.Stock} (cap)");
+                else Plain(l.Stock.ToString());
                 Cell(l.WorkshopPerWeek >= 0.5 ? l.WorkshopPerWeek.ToString("0") : "-");
                 Cell(l.SupplyNow.ToString("0"));
                 Cell(Math.Abs(l.SupplyAfter - l.SupplyNow) < 0.5 ? "-" : l.SupplyAfter.ToString("0"));
@@ -498,10 +659,7 @@ public sealed class MainWindow : Window
             ImGui.EndTable();
         }
 
-        ImGui.TextColored(Muted, "Each animal leaves its common leaving daily and its bonus leaving 80% of days when Gleeful (Premium Island Greenfeed): about 7 + 5.6 a week. The isleventory holds 999 of each.");
-
-        ImGui.Spacing();
-        if (ImGui.CollapsingHeader($"Your animals ({snap.Animals.Count})###animals"))
+        if (Group($"Your animals ({snap.Animals.Count})###animals", false))
         {
             foreach (var a in snap.Animals.OrderBy(a => a.Species))
             {
@@ -526,13 +684,13 @@ public sealed class MainWindow : Window
 
     private void DrawSpot(SpeciesSpot spot, string label, DateTimeOffset now)
     {
-        ImGui.TextColored(Muted, $"    {label} at ({spot.X:0.#}, {spot.Y:0.#}), {spot.When}.");
+        Colored(Muted, $"    {label} at ({spot.X:0.#}, {spot.Y:0.#}), {spot.When}.");
         ImGui.SameLine();
-        if (ImGui.SmallButton($"Map##{label}{spot.Name}")) status = plugin.FlagOnMap(spot.X, spot.Y) ?? string.Empty;
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Puts a flag on this spot and opens the map.");
+        if (MapButton($"{label}{spot.Name}")) status = plugin.FlagOnMap(spot.X, spot.Y) ?? string.Empty;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Flag this spot on the map.");
         if (!spot.Rare) return;
         var w = WindowFor(spot, now);
-        ImGui.TextColored(w != null && w.OpenAt(now) ? Good : Muted, "      " + IslandClock.Describe(w, now, true));
+        Colored(w != null && w.OpenAt(now) ? Good : Muted, "      " + IslandClock.Describe(w, now, true));
     }
 
     private void DrawWeather(DateTimeOffset now)
@@ -540,7 +698,7 @@ public sealed class MainWindow : Window
         var rates = plugin.IslandWeather;
         if (rates.Count == 0)
         {
-            ImGui.TextColored(Muted, $"Eorzea time {IslandClock.EorzeaClock(now)}. Island weather isn't available.");
+            Note("The island's weather isn't available.");
             return;
         }
 
@@ -549,8 +707,7 @@ public sealed class MainWindow : Window
         for (var i = 1; i < f.Count && changes.Count < 4; i++)
             if (f[i].Weather.Id != f[i - 1].Weather.Id) changes.Add(f[i]);
         var next = changes.Count == 0 ? "no change for a while" : string.Join(", ", changes.Select(x => $"{x.Weather.Name} in {IslandClock.Span(x.Start - now)}"));
-        ImGui.TextUnformatted($"Eorzea time {IslandClock.EorzeaClock(now)}, {f[0].Weather.Name}.");
-        ImGui.TextColored(Muted, $"Coming up: {next}.");
+        Note($"Island weather: {f[0].Weather.Name} now; {next}.");
     }
 
     private void DrawFind(IslandSnapshot s)
@@ -559,8 +716,7 @@ public sealed class MainWindow : Window
         DrawWeather(now);
         ImGui.SetNextItemWidth(250);
         ImGui.InputTextWithHint("##findfilter", "Search...", ref findFilter, 64);
-        ImGui.SameLine();
-        ImGui.TextColored(Muted, "\"Map\" puts the game's flag on the spot and opens the map.");
+        HelpMarker("\"Map\" puts the game's flag on the spot and opens the map. It never moves you.");
         if (!ImGui.BeginTabBar("##findtabs")) return;
         if (ImGui.BeginTabItem("Materials"))
         {
@@ -608,7 +764,7 @@ public sealed class MainWindow : Window
 
     private void DrawGatherSpot(GatherSpot g, string id)
     {
-        if (ImGui.SmallButton($"Map##{id}{g.PouchId}")) status = plugin.FlagOnMap(g.X, g.Y, g.Cave) ?? string.Empty;
+        if (MapButton($"{id}{g.PouchId}")) status = plugin.FlagOnMap(g.X, g.Y, g.Cave) ?? string.Empty;
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip($"({g.X:0.0}, {g.Y:0.0}){(g.Cave ? " in the cave system" : string.Empty)}, search within about {g.Radius:0.#} of it.\nNeeds {Tool(g.Tier)}.");
     }
@@ -644,7 +800,7 @@ public sealed class MainWindow : Window
             .ThenBy(r => r.Sort)
             .ToList();
 
-        ImGui.TextColored(Muted, "Sorted by how soon this week's agendas run each one out. Hover a Map button for the tool it needs.");
+        Colored(Muted, "Sorted by how soon this week's agendas run each one out. Hover a Map button for the tool it needs.");
         if (!ImGui.BeginTable("##findmat", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY)) return;
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableSetupColumn("Material");
@@ -660,20 +816,20 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
             Icon(r.Item.Icon, ImGui.GetTextLineHeight());
             ImGui.SameLine();
-            ImGui.TextUnformatted(r.Item.Name);
+            Plain(r.Item.Name);
             ImGui.TableNextColumn();
-            if (r.Item.Count >= 999) ImGui.TextColored(Warn, "999 (cap)");
-            else ImGui.TextUnformatted(r.Item.Count.ToString());
+            if (r.Item.Count >= 999) Colored(Warn, "999 (cap)");
+            else Plain(r.Item.Count.ToString());
             Cell(r.PerWeek >= 0.5 ? r.PerWeek.ToString("0") : "-");
             ImGui.TableNextColumn();
-            if (r.Weeks is { } w) ImGui.TextColored(w < 2 ? Warn : w < 6 ? new Vector4(1, 1, 1, 1) : Muted, w < 1 ? "under a week" : $"{w:0.#} weeks");
-            else ImGui.TextColored(Muted, "-");
+            if (r.Weeks is { } w) Colored(w < 2 ? Warn : w < 6 ? new Vector4(1, 1, 1, 1) : Muted, w < 1 ? "under a week" : $"{w:0.#} weeks");
+            else Colored(Muted, "-");
             ImGui.TableNextColumn();
             if (r.Spot is { } g)
             {
                 var where = $"({g.X:0.0}, {g.Y:0.0}){(g.Cave ? " cave" : string.Empty)}";
-                if (r.Item.Discovered) ImGui.TextUnformatted(where);
-                else ImGui.TextColored(Muted, $"{where}, not in your log yet");
+                if (r.Item.Discovered) Plain(where);
+                else Colored(Muted, $"{where}, not in your log yet");
                 if (!r.Item.Discovered && ImGui.IsItemHovered())
                     ImGui.SetTooltip($"You haven't gathered this yet. It needs {Tool(g.Tier)}, which comes with island progress.");
                 ImGui.TableNextColumn();
@@ -681,7 +837,7 @@ public sealed class MainWindow : Window
             }
             else
             {
-                ImGui.TextColored(Muted, "Granary: " + string.Join(", ", fromGranary[r.Item.PouchId]));
+                Colored(Muted, "Granary: " + string.Join(", ", fromGranary[r.Item.PouchId]));
                 ImGui.TableNextColumn();
             }
         }
@@ -696,7 +852,7 @@ public sealed class MainWindow : Window
         var produce = s.Isleventory.Where(p => p.IsProduce).GroupBy(p => p.CropRow).ToDictionary(g => g.Key, g => g.First());
         var seeds = s.Isleventory.Where(p => !p.IsProduce && p.CropRow != 0 && Matches(p.Name)).OrderBy(p => p.CropRow).ToList();
 
-        ImGui.TextColored(Muted, "A few seeds grow wild and can be gathered from the start; the cropland mammet sells more as your island ranks up.");
+        Colored(Muted, "A few seeds grow wild and can be gathered from the start; the cropland mammet sells more as your island ranks up.");
         if (!ImGui.BeginTable("##findseed", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY)) return;
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableSetupColumn("Seed");
@@ -711,21 +867,21 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
             Icon(seed.Icon, ImGui.GetTextLineHeight());
             ImGui.SameLine();
-            ImGui.TextUnformatted(seed.Name);
+            Plain(seed.Name);
             Cell(seed.Count.ToString());
             Cell(planted.TryGetValue(seed.PouchId, out var n) ? n.ToString() : "");
             ImGui.TableNextColumn();
             if (spots.TryGetValue(seed.PouchId, out var g))
             {
-                ImGui.TextUnformatted($"Grows wild at ({g.X:0.0}, {g.Y:0.0}), or from the mammet");
+                Plain($"Grows wild at ({g.X:0.0}, {g.Y:0.0}), or from the mammet");
                 ImGui.TableNextColumn();
                 DrawGatherSpot(g, "seed");
             }
             else
             {
                 var grown = produce.TryGetValue(seed.CropRow, out var pr) && pr.Discovered;
-                if (seed.Count > 0 || grown) ImGui.TextUnformatted("Cropland mammet");
-                else ImGui.TextColored(Muted, "Cropland mammet, once your island rank unlocks it");
+                if (seed.Count > 0 || grown) Plain("Cropland mammet");
+                else Colored(Muted, "Cropland mammet, once your island rank unlocks it");
                 ImGui.TableNextColumn();
             }
         }
@@ -762,13 +918,13 @@ public sealed class MainWindow : Window
             Cell($"{spot.Common} + {spot.Bonus}");
             Cell(spot.Rare ? spot.When : "-");
             ImGui.TableNextColumn();
-            if (!spot.Rare) ImGui.TextColored(Muted, "always");
-            else if (w == null) ImGui.TextColored(Muted, "unknown");
-            else if (w.OpenAt(now)) ImGui.TextColored(Good, $"now, {IslandClock.Span(w.End - now)} left");
-            else ImGui.TextUnformatted($"in {IslandClock.Span(w.Start - now)}");
+            if (!spot.Rare) Colored(Muted, "always");
+            else if (w == null) Colored(Muted, "unknown");
+            else if (w.OpenAt(now)) Colored(Good, $"now, {IslandClock.Span(w.End - now)} left");
+            else Plain($"in {IslandClock.Span(w.Start - now)}");
             Cell(owned.TryGetValue(spot.Name, out var n) ? n.ToString() : "");
             ImGui.TableNextColumn();
-            if (ImGui.SmallButton($"Map##find{spot.Name}")) status = plugin.FlagOnMap(spot.X, spot.Y) ?? string.Empty;
+            if (MapButton($"find{spot.Name}")) status = plugin.FlagOnMap(spot.X, spot.Y) ?? string.Empty;
             if (ImGui.IsItemHovered()) ImGui.SetTooltip($"({spot.X:0.#}, {spot.Y:0.#})");
         }
 
@@ -777,22 +933,28 @@ public sealed class MainWindow : Window
 
     private void DrawGranaryAdvice()
     {
-        if (plugin.Granary is not { } g) return;
-        ImGui.Spacing();
-        if (!ImGui.CollapsingHeader("Granary expeditions###granary", ImGuiTreeNodeFlags.DefaultOpen)) return;
+        var snap = plugin.Snapshot;
+        if (plugin.Granary is not { } g)
+        {
+            Note(plugin.Planning ? "Working it out..." : "Granary advice follows the week plan; it appears once the plan is ready.");
+            return;
+        }
+
+        Section("Send your granaries", "Picked from what this week's plan uses and how long your stock of each rare material lasts. Each expedition runs 7 days.");
         if (g.advice.Count == 0)
         {
-            ImGui.TextColored(Muted, "Open a granary's expedition window once (Select Terrain) so EasyIsle can see your expedition areas.");
-            return;
+            Note("Open a granary's expedition window once (Select Terrain) so EasyIsle can see your expedition areas.");
         }
 
         foreach (var a in g.advice)
         {
-            ImGui.TextUnformatted($"Granary {a.Granary}: {a.Action}");
-            ImGui.TextColored(Muted, "    " + a.Reason);
+            Plain($"Granary {a.Granary}: {a.Action}");
+            Note("    " + a.Reason);
+            if (snap?.Expeditions.FirstOrDefault(e => e.Granary == a.Granary) is { } e)
+                Note(e.ExpeditionId == 0 ? "    Idle right now." : $"    Now: {e.Destination}, {e.DaysRemaining} day(s) left" + (e.WaitingToCollect > 0 ? $", {e.WaitingToCollect} item(s) to collect." : "."));
         }
 
-
+        Section("Rare materials");
         if (!ImGui.BeginTable("##rares", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders)) return;
         ImGui.TableSetupColumn("Rare material");
         ImGui.TableSetupColumn("On hand", ImGuiTableColumnFlags.WidthFixed, 70);
@@ -819,11 +981,14 @@ public sealed class MainWindow : Window
             var list = g.ToList();
             var first = list[0];
             var label = list.Count == 1 ? $"Workshop {first.Workshop}" : "Workshops " + string.Join(", ", list.Select(w => w.Workshop));
-            ImGui.TextUnformatted($"{label}  ({first.Hours} h, about {list.Sum(w => w.Total):N0} cowries)");
+            Plain($"{label}  ({first.Hours} h, about {list.Sum(w => w.Total):N0} cowries)");
             ImGui.SameLine();
             var canCopy = AgendaClipboard.Available;
             if (!canCopy) ImGui.BeginDisabled();
-            if (ImGui.SmallButton($"Copy for the game##copy{day.Cycle}_{first.Workshop}"))
+            ImGui.PushID($"copy{day.Cycle}_{first.Workshop}");
+            var copy = ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Copy, "Copy for the game");
+            ImGui.PopID();
+            if (copy)
             {
                 var error = AgendaClipboard.Copy(first.Crafts);
                 status = error ?? $"Copied. In the agenda, right-click {(list.Count == 1 ? $"workshop {first.Workshop}" : "each of workshops " + string.Join(", ", list.Select(w => w.Workshop)))} on cycle {day.Cycle + 1} and choose Apply Copied Agenda.";
@@ -866,9 +1031,9 @@ public sealed class MainWindow : Window
 
     private static void Row(string label, string value)
     {
-        ImGui.TextColored(Muted, label + ":");
+        Colored(Muted, label + ":");
         ImGui.SameLine(170);
-        ImGui.TextUnformatted(value);
+        Plain(value);
     }
 
     private void DrawCrafts(IslandSnapshot s)
@@ -900,7 +1065,7 @@ public sealed class MainWindow : Window
 
     private void DrawIsleventory(IslandSnapshot s)
     {
-        ImGui.TextColored(Muted, "Counts: " + s.IsleventorySource);
+        Colored(Muted, "Counts: " + s.IsleventorySource);
         ImGui.Checkbox("Only items I've discovered", ref discoveredOnly);
         if (!ImGui.BeginTable("##pouch", 3, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY))
             return;
@@ -922,8 +1087,8 @@ public sealed class MainWindow : Window
 
     private static void DrawProduce(IslandSnapshot s)
     {
-        ImGui.TextUnformatted("Granary expeditions");
-        if (s.Expeditions.Count == 0) ImGui.TextColored(Muted, "  not loaded");
+        Plain("Granary expeditions");
+        if (s.Expeditions.Count == 0) Colored(Muted, "  not loaded");
         foreach (var e in s.Expeditions)
         {
             var text = e.ExpeditionId == 0
@@ -934,8 +1099,8 @@ public sealed class MainWindow : Window
         }
 
         ImGui.Spacing();
-        ImGui.TextUnformatted("Cropland");
-        if (s.FarmPlots.Count == 0) ImGui.TextColored(Muted, "  not loaded");
+        Plain("Cropland");
+        if (s.FarmPlots.Count == 0) Colored(Muted, "  not loaded");
         foreach (var p in s.FarmPlots)
         {
             Row($"  Plot {p.Slot}", p.SeedRow == 0
@@ -944,8 +1109,8 @@ public sealed class MainWindow : Window
         }
 
         ImGui.Spacing();
-        ImGui.TextUnformatted("Pasture");
-        if (s.Animals.Count == 0) ImGui.TextColored(Muted, "  not loaded or empty");
+        Plain("Pasture");
+        if (s.Animals.Count == 0) Colored(Muted, "  not loaded or empty");
         foreach (var a in s.Animals)
         {
             var name = a.Nickname.Length > 0 ? $"{a.Nickname} ({a.Species})" : a.Species;
@@ -958,7 +1123,7 @@ public sealed class MainWindow : Window
     {
         if (s.Favors.Count == 0)
         {
-            ImGui.TextColored(Muted, "Not loaded: open the Felicitous Favors window once.");
+            Colored(Muted, "Not loaded: open the Felicitous Favors window once.");
             return;
         }
 
@@ -967,7 +1132,7 @@ public sealed class MainWindow : Window
             var list = s.Favors.Where(f => f.Season == season).ToList();
             if (list.Count == 0) continue;
             ImGui.Spacing();
-            ImGui.TextUnformatted(season + " season");
+            Plain(season + " season");
             foreach (var f in list)
             {
                 ImGui.BulletText($"{f.Name}: shipped {f.Delivered}/{f.Required}, scheduled {f.Scheduled}"
@@ -978,7 +1143,7 @@ public sealed class MainWindow : Window
 
     private static void DrawAgenda(IslandSnapshot s)
     {
-        ImGui.TextColored(Muted, "Agenda: " + s.ScheduleSource);
+        Colored(Muted, "Agenda: " + s.ScheduleSource);
         foreach (var w in s.Schedule)
         {
             Row($"Workshop {w.Workshop}", w.Entries.Count == 0
@@ -990,7 +1155,7 @@ public sealed class MainWindow : Window
         if (ImGui.CollapsingHeader("Agenda clipboard readout (for debugging)"))
         {
             var text = AgendaReadout();
-            ImGui.TextUnformatted(text);
+            Plain(text);
             if (ImGui.Button("Copy readout")) ImGui.SetClipboardText(text);
         }
     }
@@ -1027,6 +1192,6 @@ public sealed class MainWindow : Window
     private static void Cell(string text)
     {
         ImGui.TableNextColumn();
-        ImGui.TextUnformatted(text);
+        Plain(text);
     }
 }
