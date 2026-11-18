@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.IO;
 using System.Text.Json;
+using Dalamud.Game;
 using Dalamud.Game.Command;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
@@ -22,6 +24,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
+    [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
+    [PluginService] internal static IClientState ClientState { get; private set; } = null!;
 
     private const string Command = "/easyisle";
     private const string ShortCommand = "/ei";
@@ -44,6 +48,60 @@ public sealed class Plugin : IDalamudPlugin
             var items = DataManager.GetExcelSheet<MJIGatheringItem>().Select(g => g.Item.RowId).Where(i => i != 0).ToHashSet();
             gatherable = DataManager.GetExcelSheet<MJIItemPouch>().Where(p => items.Contains(p.Item.RowId)).Select(p => p.RowId).ToHashSet();
             return gatherable;
+        }
+    }
+
+    private const uint DefaultIslandTerritory = 1055;
+    private List<WeatherChance>? islandWeather;
+    private uint islandMap;
+
+    private uint IslandTerritory => Configuration.IslandTerritory != 0 ? Configuration.IslandTerritory : DefaultIslandTerritory;
+
+    /// <summary>The island's weathers and their chances (from its WeatherRate row).</summary>
+    public IReadOnlyList<WeatherChance> IslandWeather
+    {
+        get
+        {
+            if (islandWeather != null) return islandWeather;
+            var list = new List<WeatherChance>();
+            try
+            {
+                if (DataManager.GetExcelSheet<TerritoryType>().TryGetRow(IslandTerritory, out var t))
+                {
+                    islandMap = t.Map.RowId;
+                    var english = DataManager.GetExcelSheet<Weather>(ClientLanguage.English);
+                    var rate = t.WeatherRate.Value;
+                    for (var i = 0; i < rate.Weather.Count && i < rate.Rate.Count; i++)
+                    {
+                        var w = rate.Weather[i];
+                        if (w.RowId == 0 || rate.Rate[i] == 0) continue;
+                        var en = english.TryGetRow(w.RowId, out var e) ? e.Name.ExtractText() : string.Empty;
+                        list.Add(new WeatherChance(w.RowId, w.Value.Name.ExtractText(), en, rate.Rate[i], w.Value.Icon));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Couldn't read the island's weather");
+            }
+
+            islandWeather = list;
+            return list;
+        }
+    }
+
+    /// <summary>Puts the game's map flag on a spot of the island and opens the map. Nothing else.</summary>
+    public void FlagOnMap(float x, float y)
+    {
+        try
+        {
+            _ = IslandWeather;
+            if (islandMap == 0) return;
+            GameGui.OpenMapWithMapLink(new MapLinkPayload(IslandTerritory, islandMap, x, y));
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Couldn't open the map");
         }
     }
 
@@ -87,6 +145,13 @@ public sealed class Plugin : IDalamudPlugin
         {
             Snapshot = Reader.Read();
             ReadError = null;
+            if (Snapshot.OnIsland && ClientState.TerritoryType != 0 && ClientState.TerritoryType != Configuration.IslandTerritory)
+            {
+                Configuration.IslandTerritory = ClientState.TerritoryType;
+                islandWeather = null;
+                Configuration.Save();
+            }
+
             Replan();
         }
         catch (Exception ex)

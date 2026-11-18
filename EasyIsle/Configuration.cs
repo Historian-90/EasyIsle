@@ -29,6 +29,9 @@ public class Configuration : IPluginConfiguration
     /// <summary>Feed the caretakers were last seen using (from the Pasture Management window).</summary>
     public uint FeedInUse { get; set; }
 
+    /// <summary>The island's TerritoryType row, seen while on the island (for map flags and weather).</summary>
+    public uint IslandTerritory { get; set; }
+
     /// <summary>Today's week plan, kept so it doesn't change under you.</summary>
     public WeekLock? WeekLock { get; set; }
 

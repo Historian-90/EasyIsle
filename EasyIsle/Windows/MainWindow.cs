@@ -86,6 +86,7 @@ public sealed class MainWindow : Window
         Tab("Plan", DrawPlan);
         Tab("Cropland", DrawCropland);
         Tab("Pasture", DrawPasture);
+        Tab("Find", () => DrawFind(s));
         Tab("Island", () => DrawIsland(s));
         Tab($"Crafts ({s.Crafts.Count(c => c.Available)})", () => DrawCrafts(s));
         Tab("Isleventory", () => DrawIsleventory(s));
@@ -437,7 +438,9 @@ public sealed class MainWindow : Window
         var names = snap.Isleventory.ToDictionary(x => x.PouchId, x => x.Name);
         string Leaves(AnimalKind k) => $"{names.GetValueOrDefault(k.CommonPouchId)} + {names.GetValueOrDefault(k.BonusPouchId)}";
 
+        var now = DateTimeOffset.UtcNow;
         ImGui.TextUnformatted($"Pasture: {p.Owned}/{p.Capacity} animals.");
+        DrawWeather(now);
         if (p.Capture.Count == 0 && p.Release.Count == 0)
         {
             ImGui.TextColored(Good, "Your animals cover what your workshops need. Nothing to catch or release.");
@@ -465,9 +468,8 @@ public sealed class MainWindow : Window
             var main = c.Spots.FirstOrDefault();
             ImGui.TextUnformatted($"Catch {c.Count}: {(main != null ? main.Name : $"an animal leaving {Leaves(c.Kind)}")}  ({c.Kind.Size}, {AnimalAdvisor.Restraint(c.Kind.Size)})");
             ImGui.TextColored(Muted, $"    {Leaves(c.Kind)} {c.Why}.");
-            if (main != null) ImGui.TextColored(Muted, $"    Found at ({main.X:0.#}, {main.Y:0.#}), {main.When}.");
-            foreach (var alt in c.Spots.Skip(1))
-                ImGui.TextColored(Muted, $"    Or {alt.Name} ({alt.X:0.#}, {alt.Y:0.#}), {alt.When}.");
+            if (main != null) DrawSpot(main, "Found", now);
+            foreach (var alt in c.Spots.Skip(1)) DrawSpot(alt, "Or " + alt.Name, now);
         }
 
         ImGui.Spacing();
@@ -507,6 +509,99 @@ public sealed class MainWindow : Window
                 ImGui.BulletText($"{name}: {string.Join(" + ", a.Leavings)}" + (a.UnderCare ? ", with the caretaker" : string.Empty));
             }
         }
+    }
+
+    private readonly Dictionary<string, (long Hour, SpawnWindow? Window)> windowCache = [];
+    private string findFilter = string.Empty;
+
+    /// <summary>When a spot's time and weather next hold; cached per Eorzea hour.</summary>
+    private SpawnWindow? WindowFor(SpeciesSpot spot, DateTimeOffset now)
+    {
+        var hour = (long)Math.Floor(IslandClock.EorzeaHours(now));
+        if (windowCache.TryGetValue(spot.Name, out var c) && c.Hour == hour) return c.Window;
+        var w = IslandClock.NextWindow(spot, plugin.IslandWeather, now);
+        if (w != null || plugin.IslandWeather.Count > 0) windowCache[spot.Name] = (hour, w);
+        return w;
+    }
+
+    private void DrawSpot(SpeciesSpot spot, string label, DateTimeOffset now)
+    {
+        ImGui.TextColored(Muted, $"    {label} at ({spot.X:0.#}, {spot.Y:0.#}), {spot.When}.");
+        ImGui.SameLine();
+        if (ImGui.SmallButton($"Map##{label}{spot.Name}")) plugin.FlagOnMap(spot.X, spot.Y);
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Puts a flag on this spot and opens the map.");
+        if (!spot.Rare) return;
+        var w = WindowFor(spot, now);
+        ImGui.TextColored(w != null && w.OpenAt(now) ? Good : Muted, "      " + IslandClock.Describe(w, now, true));
+    }
+
+    private void DrawWeather(DateTimeOffset now)
+    {
+        var rates = plugin.IslandWeather;
+        if (rates.Count == 0)
+        {
+            ImGui.TextColored(Muted, $"Eorzea time {IslandClock.EorzeaClock(now)}. Island weather isn't available.");
+            return;
+        }
+
+        var f = IslandClock.Forecast(rates, now, 8);
+        var changes = new List<(DateTimeOffset Start, WeatherChance Weather)>();
+        for (var i = 1; i < f.Count && changes.Count < 4; i++)
+            if (f[i].Weather.Id != f[i - 1].Weather.Id) changes.Add(f[i]);
+        var next = changes.Count == 0 ? "no change for a while" : string.Join(", ", changes.Select(x => $"{x.Weather.Name} in {IslandClock.Span(x.Start - now)}"));
+        ImGui.TextUnformatted($"Eorzea time {IslandClock.EorzeaClock(now)}, {f[0].Weather.Name}.");
+        ImGui.TextColored(Muted, $"Coming up: {next}.");
+    }
+
+    private void DrawFind(IslandSnapshot s)
+    {
+        var now = DateTimeOffset.UtcNow;
+        DrawWeather(now);
+        ImGui.TextColored(Muted, "Animals for now; materials and seeds come next. \"Map\" puts the game's flag on the spot.");
+        ImGui.SetNextItemWidth(250);
+        ImGui.InputTextWithHint("##findfilter", "Search name or leaving...", ref findFilter, 64);
+
+        var owned = s.Animals.GroupBy(a => a.Species).ToDictionary(g => g.Key, g => g.Count());
+        var rows = SpeciesTable.All
+            .Where(a => findFilter.Length == 0
+                        || a.Name.Contains(findFilter, StringComparison.OrdinalIgnoreCase)
+                        || a.Common.Contains(findFilter, StringComparison.OrdinalIgnoreCase)
+                        || a.Bonus.Contains(findFilter, StringComparison.OrdinalIgnoreCase))
+            .Select(a => (Spot: a, Window: a.Rare ? WindowFor(a, now) : null))
+            .OrderBy(r => !r.Spot.Rare ? 2 : r.Window == null ? 3 : r.Window.OpenAt(now) ? 0 : 1)
+            .ThenBy(r => r.Window?.Start ?? DateTimeOffset.MaxValue)
+            .ThenBy(r => r.Spot.Name)
+            .ToList();
+
+        if (!ImGui.BeginTable("##find", 7, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY)) return;
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableSetupColumn("Animal");
+        ImGui.TableSetupColumn("Size", ImGuiTableColumnFlags.WidthFixed, 35);
+        ImGui.TableSetupColumn("Leaves", ImGuiTableColumnFlags.WidthFixed, 140);
+        ImGui.TableSetupColumn("Needs", ImGuiTableColumnFlags.WidthFixed, 190);
+        ImGui.TableSetupColumn("Chance", ImGuiTableColumnFlags.WidthFixed, 170);
+        ImGui.TableSetupColumn("You have", ImGuiTableColumnFlags.WidthFixed, 60);
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 40);
+        ImGui.TableHeadersRow();
+        foreach (var (spot, w) in rows)
+        {
+            ImGui.TableNextRow();
+            Cell(spot.Name);
+            Cell(spot.Size.ToString());
+            Cell($"{spot.Common} + {spot.Bonus}");
+            Cell(spot.Rare ? spot.When : "-");
+            ImGui.TableNextColumn();
+            if (!spot.Rare) ImGui.TextColored(Muted, "always");
+            else if (w == null) ImGui.TextColored(Muted, "unknown");
+            else if (w.OpenAt(now)) ImGui.TextColored(Good, $"now, {IslandClock.Span(w.End - now)} left");
+            else ImGui.TextUnformatted($"in {IslandClock.Span(w.Start - now)}");
+            Cell(owned.TryGetValue(spot.Name, out var n) ? n.ToString() : "");
+            ImGui.TableNextColumn();
+            if (ImGui.SmallButton($"Map##find{spot.Name}")) plugin.FlagOnMap(spot.X, spot.Y);
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip($"({spot.X:0.#}, {spot.Y:0.#})");
+        }
+
+        ImGui.EndTable();
     }
 
     private void DrawGranaryAdvice()
