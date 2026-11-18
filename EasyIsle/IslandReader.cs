@@ -538,23 +538,56 @@ public sealed unsafe class IslandReader
 
         var animals = Plugin.DataManager.GetExcelSheet<MJIAnimals>();
         var names = Plugin.DataManager.GetExcelSheet<BNpcName>();
+        var pouchByItem = snap.Isleventory.GroupBy(p => p.ItemId).ToDictionary(g => g.Key, g => g.First().PouchId);
+
+        // Every kind of animal and what it leaves (index 0 = common, 1 = bonus).
+        var sizes = animals.Where(a => a.RowId != 0).Select(a => a.Size).Distinct().OrderBy(x => x).ToList();
+        foreach (var kind in animals)
+        {
+            if (kind.RowId == 0 || kind.Reward.Count < 2) continue;
+            var common = pouchByItem.GetValueOrDefault(kind.Reward[0].RowId);
+            var bonus = pouchByItem.GetValueOrDefault(kind.Reward[1].RowId);
+            if (common == 0 || bonus == 0) continue;
+            var sizeIndex = sizes.IndexOf(kind.Size);
+            snap.AnimalKinds.Add(new AnimalKind
+            {
+                Row = kind.RowId,
+                Size = sizeIndex <= 0 ? 'S' : sizeIndex == 1 ? 'M' : 'L',
+                CommonPouchId = common,
+                BonusPouchId = bonus,
+                Icon = (uint)Math.Max(0, kind.Icon),
+            });
+        }
+
         foreach (var a in pasture->MJIAnimals)
         {
             if (a.AnimalType == 0 && a.BNPCNameId == 0) continue;
+            var species = names.GetRowOrDefault(a.BNPCNameId)?.Singular.ExtractText() ?? $"#{a.BNPCNameId}";
             var animal = new Animal
             {
                 Slot = a.SlotId,
-                Species = names.GetRowOrDefault(a.BNPCNameId)?.Singular.ExtractText() ?? $"#{a.BNPCNameId}",
+                Row = a.AnimalType,
+                Species = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(species),
                 Nickname = a.NicknameString,
                 Food = a.FoodLevel,
                 Mood = a.Mood,
                 UnderCare = a.UnderCare,
             };
-            if (animals.GetRowOrDefault(a.AnimalType) is { } kind)
-                foreach (var r in kind.Reward)
+            var k = snap.AnimalKinds.FirstOrDefault(x => x.Row == a.AnimalType);
+            if (k != null)
+            {
+                animal.CommonPouchId = k.CommonPouchId;
+                animal.BonusPouchId = k.BonusPouchId;
+            }
+
+            if (animals.GetRowOrDefault(a.AnimalType) is { } kindRow)
+                foreach (var r in kindRow.Reward)
                     if (r.RowId != 0) animal.Leavings.Add(Name(r.ValueNullable));
             snap.Animals.Add(animal);
         }
+
+        var level = snap.Pasture.Level;
+        snap.PastureCapacity = level >= 3 ? 20 : level == 2 ? 10 : 5;
     }
 
     private void ReadFavors(MJIManager* mgr, IslandSnapshot snap)

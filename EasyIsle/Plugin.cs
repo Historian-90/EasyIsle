@@ -99,6 +99,7 @@ public sealed class Plugin : IDalamudPlugin
     public WeekPlan? Week { get; private set; }
     public (List<GranaryAdvice> advice, List<RareStock> rares)? Granary { get; private set; }
     public CropPlan? Crops { get; private set; }
+    public PastureAdvice? Pasture { get; private set; }
     public Dictionary<uint, Forecast> Forecasts { get; private set; } = [];
     public bool Planning { get; private set; }
 
@@ -133,6 +134,7 @@ public sealed class Plugin : IDalamudPlugin
         var feedChoice = Configuration.FeedPouchId != 0 ? Configuration.FeedPouchId : Configuration.FeedInUse;
         var savedWeek = Configuration.WeekLock;
         var savedCrops = new Dictionary<int, uint>(Configuration.CropLock);
+        var savedPasture = new Dictionary<string, int>(Configuration.PastureLock);
         var season = IslandReader.SeasonStartUtc(DateTime.UtcNow).ToString("yyyy-MM-dd");
         var optionKey = $"{Configuration.AllowGathering}|{Configuration.PrioritizeFavors}";
         System.Threading.Tasks.Task.Run(() =>
@@ -144,10 +146,12 @@ public sealed class Plugin : IDalamudPlugin
                 var week = new WeekPlanner(copy, options, gather, forecasts) { Saved = savedOk ? savedWeek : null }.Make();
                 var crops = CropAdvisor.Advise(copy, week, feedChoice);
                 var cropLock = CropAdvisor.ApplyLock(crops, savedCrops);
+                var pasture = AnimalAdvisor.Advise(copy, week, savedPasture);
                 Forecasts = forecasts;
                 Week = week;
                 Granary = GranaryAdvisor.Advise(copy, week);
                 Crops = crops;
+                Pasture = pasture;
 
                 // Keep what was decided so the advice sits still.
                 Framework.RunOnFrameworkThread(() =>
@@ -155,6 +159,7 @@ public sealed class Plugin : IDalamudPlugin
                     if (!week.Kept && week.Days.Count > 0)
                         Configuration.WeekLock = new WeekLock { Season = season, CycleDay = copy.CycleDay, Options = optionKey, Cycles = week.Days.Select(d => d.Cycle).ToList(), Chains = week.Chains, RestAdvice = week.RestAdvice };
                     Configuration.CropLock = cropLock;
+                    Configuration.PastureLock = pasture.Capture.Count + pasture.Release.Count > 0 ? pasture.Target : [];
                     Configuration.Save();
                 });
             }
@@ -181,6 +186,14 @@ public sealed class Plugin : IDalamudPlugin
         Replan(true);
     }
 
+    /// <summary>Drops the kept pasture advice and works out new advice.</summary>
+    public void NewPasturePlan()
+    {
+        Configuration.PastureLock = [];
+        Configuration.Save();
+        Replan(true);
+    }
+
     /// <summary>Drops the kept planting list and works out a new one.</summary>
     public void NewCropPlan()
     {
@@ -201,6 +214,7 @@ public sealed class Plugin : IDalamudPlugin
         foreach (var e in s.Expeditions) sb.Append(e.ExpeditionId).Append(e.DaysRemaining);
         foreach (var d in s.Destinations) sb.Append(d.Unlocked ? 'y' : 'n');
         foreach (var f in s.FarmPlots) sb.Append(f.SeedRow).Append(':').Append(f.Yield).Append(f.CareHalted ? 'h' : '-').Append(f.UnderCare ? 'c' : '-');
+        foreach (var a in s.Animals) sb.Append(a.Row).Append(',');
         sb.Append('|').Append(s.Animals.Count).Append('|').Append(Configuration.FeedPouchId).Append(Configuration.FeedInUse);
         foreach (var season in s.SupplyHistory) sb.Append(season.Key).Append(season.Value.Count);
         return sb.ToString();

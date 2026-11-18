@@ -35,6 +35,9 @@ public class Configuration : IPluginConfiguration
     /// <summary>Planting list (plot -> crop's isleventory row), kept until those plots are planted.</summary>
     public Dictionary<int, uint> CropLock { get; set; } = [];
 
+    /// <summary>Target pasture (leavings pair -> count), kept until the captures and releases are done.</summary>
+    public Dictionary<string, int> PastureLock { get; set; } = [];
+
     public bool AllowGathering { get; set; } = true;
 
     public bool PrioritizeFavors { get; set; }

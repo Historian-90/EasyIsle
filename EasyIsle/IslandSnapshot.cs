@@ -56,6 +56,12 @@ public class IslandSnapshot
     public bool DestinationsUnlockKnown { get; set; }
     public List<FarmPlot> FarmPlots { get; set; } = [];
 
+    /// <summary>Animal kinds from the game data (MJIAnimals), with their leavings.</summary>
+    public List<AnimalKind> AnimalKinds { get; set; } = [];
+
+    /// <summary>How many animals the pasture holds (5 / 10 / 20).</summary>
+    public int PastureCapacity { get; set; }
+
     /// <summary>Recipes that turn produce into animal feed.</summary>
     public List<FeedRecipe> FeedRecipes { get; set; } = [];
     public List<Animal> Animals { get; set; } = [];
@@ -185,6 +191,12 @@ public class FeedRecipe
 public class Animal
 {
     public int Slot { get; set; }
+
+    /// <summary>MJIAnimals row (the kind of animal).</summary>
+    public uint Row { get; set; }
+
+    public uint CommonPouchId { get; set; }
+    public uint BonusPouchId { get; set; }
     public string Species { get; set; } = string.Empty;
     public string Nickname { get; set; } = string.Empty;
     public int Food { get; set; }
@@ -238,4 +250,17 @@ public class Destination
     public string RareName { get; set; } = string.Empty;
     public List<uint> CommonPouchIds { get; set; } = [];
     public bool Unlocked { get; set; } = true;
+}
+
+[Serializable]
+public class AnimalKind
+{
+    public uint Row { get; set; }
+
+    /// <summary>'S', 'M' or 'L' (net, restraint or soporific to catch).</summary>
+    public char Size { get; set; }
+
+    public uint CommonPouchId { get; set; }
+    public uint BonusPouchId { get; set; }
+    public uint Icon { get; set; }
 }

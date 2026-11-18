@@ -85,6 +85,7 @@ public sealed class MainWindow : Window
         if (!ImGui.BeginTabBar("##tabs")) return;
         Tab("Plan", DrawPlan);
         Tab("Cropland", DrawCropland);
+        Tab("Pasture", DrawPasture);
         Tab("Island", () => DrawIsland(s));
         Tab($"Crafts ({s.Crafts.Count(c => c.Available)})", () => DrawCrafts(s));
         Tab("Isleventory", () => DrawIsleventory(s));
@@ -419,6 +420,91 @@ public sealed class MainWindow : Window
                 ImGui.TextColored(Muted, weeks >= 6
                     ? $"Any produce works, and you have about {plan.SpareProduce:N0} spare (about {weeks:0} weeks of feed), so no plots are set aside for it. Make feed from whatever you have most of."
                     : $"Spare produce covers only about {weeks:0.#} weeks of feed, so some plots grow extra for it (Feed / wk column).");
+            }
+        }
+    }
+
+    private void DrawPasture()
+    {
+        var p = plugin.Pasture;
+        var snap = plugin.Snapshot;
+        if (p == null || snap == null || snap.AnimalKinds.Count == 0)
+        {
+            ImGui.TextColored(Muted, plugin.Planning ? "Working it out..." : "Pasture data loads on your island.");
+            return;
+        }
+
+        var names = snap.Isleventory.ToDictionary(x => x.PouchId, x => x.Name);
+        string Leaves(AnimalKind k) => $"{names.GetValueOrDefault(k.CommonPouchId)} + {names.GetValueOrDefault(k.BonusPouchId)}";
+
+        ImGui.TextUnformatted($"Pasture: {p.Owned}/{p.Capacity} animals.");
+        if (p.Capture.Count == 0 && p.Release.Count == 0)
+        {
+            ImGui.TextColored(Good, "Your animals cover what your workshops need. Nothing to catch or release.");
+        }
+        else
+        {
+            ImGui.TextColored(Muted, "This advice stays put until you've made these catches and releases.");
+            ImGui.SameLine();
+            if (ImGui.SmallButton("New pasture advice")) plugin.NewPasturePlan();
+        }
+
+        foreach (var r in p.Release)
+        {
+            ImGui.Spacing();
+            var who = string.Join(", ", r.Animals.Select(a => a.Nickname.Length > 0 ? $"{a.Nickname} ({a.Species})" : a.Species));
+            ImGui.TextColored(Warn, $"Release {r.Count}: {who}");
+            ImGui.TextColored(Muted, $"    {Leaves(r.Kind)}: {r.Why}.");
+        }
+
+        foreach (var c in p.Capture)
+        {
+            ImGui.Spacing();
+            Icon(c.Kind.Icon, ImGui.GetTextLineHeight());
+            ImGui.SameLine();
+            var main = c.Spots.FirstOrDefault();
+            ImGui.TextUnformatted($"Catch {c.Count}: {(main != null ? main.Name : $"an animal leaving {Leaves(c.Kind)}")}  ({c.Kind.Size}, {AnimalAdvisor.Restraint(c.Kind.Size)})");
+            ImGui.TextColored(Muted, $"    {Leaves(c.Kind)} {c.Why}.");
+            if (main != null) ImGui.TextColored(Muted, $"    Found at ({main.X:0.#}, {main.Y:0.#}), {main.When}.");
+            foreach (var alt in c.Spots.Skip(1))
+                ImGui.TextColored(Muted, $"    Or {alt.Name} ({alt.X:0.#}, {alt.Y:0.#}), {alt.When}.");
+        }
+
+        ImGui.Spacing();
+        if (ImGui.BeginTable("##leavings", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders))
+        {
+            ImGui.TableSetupColumn("Leaving");
+            ImGui.TableSetupColumn("On hand", ImGuiTableColumnFlags.WidthFixed, 70);
+            ImGui.TableSetupColumn("Workshops / wk", ImGuiTableColumnFlags.WidthFixed, 105);
+            ImGui.TableSetupColumn("Animals give / wk", ImGuiTableColumnFlags.WidthFixed, 125);
+            ImGui.TableSetupColumn("After advice", ImGuiTableColumnFlags.WidthFixed, 90);
+            ImGui.TableSetupColumn("Lasts", ImGuiTableColumnFlags.WidthFixed, 110);
+            ImGui.TableHeadersRow();
+            foreach (var l in p.Leavings.OrderBy(l => l.WeeksLeft ?? double.MaxValue))
+            {
+                ImGui.TableNextRow();
+                Cell(l.Name);
+                ImGui.TableNextColumn();
+                if (l.AtCap) ImGui.TextColored(Warn, $"{l.Stock} (cap)");
+                else ImGui.TextUnformatted(l.Stock.ToString());
+                Cell(l.WorkshopPerWeek >= 0.5 ? l.WorkshopPerWeek.ToString("0") : "-");
+                Cell(l.SupplyNow.ToString("0"));
+                Cell(Math.Abs(l.SupplyAfter - l.SupplyNow) < 0.5 ? "-" : l.SupplyAfter.ToString("0"));
+                Cell(l.WeeksLeft is { } w ? (w < 1 ? "under a week" : $"{w:0.#} weeks") : "-");
+            }
+
+            ImGui.EndTable();
+        }
+
+        ImGui.TextColored(Muted, "Each animal leaves its common leaving daily and its bonus leaving 80% of days when Gleeful (Premium Island Greenfeed): about 7 + 5.6 a week. The isleventory holds 999 of each.");
+
+        ImGui.Spacing();
+        if (ImGui.CollapsingHeader($"Your animals ({snap.Animals.Count})###animals"))
+        {
+            foreach (var a in snap.Animals.OrderBy(a => a.Species))
+            {
+                var name = a.Nickname.Length > 0 ? $"{a.Nickname} ({a.Species})" : a.Species;
+                ImGui.BulletText($"{name}: {string.Join(" + ", a.Leavings)}" + (a.UnderCare ? ", with the caretaker" : string.Empty));
             }
         }
     }
