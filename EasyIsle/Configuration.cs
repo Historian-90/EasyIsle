@@ -14,5 +14,9 @@ public class Configuration : IPluginConfiguration
 
     public DateTime LastIsleventoryUtc { get; set; }
 
+    public bool AllowGathering { get; set; } = true;
+
+    public bool PrioritizeFavors { get; set; }
+
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
 }

@@ -33,6 +33,9 @@ public sealed unsafe class IslandReader
         snap.Rank = island->CurrentRank;
         snap.Xp = island->CurrentXP;
         snap.Groove = mgr->CurrentGroove;
+        for (var i = 0; i < island->LandmarkIds.Length; i++)
+            if (island->LandmarkIds[i] != 0 && island->LandmarkUnderConstruction[i] == 0) snap.LandmarksBuilt++;
+        snap.GrooveMax = snap.LandmarksBuilt switch { 0 => 10, 1 => 15, 2 => 20, 3 => 25, 4 => 35, _ => 45 };
         snap.CycleDay = mgr->CurrentCycleDay;
         foreach (var d in mgr->CraftworksRestDays) snap.RestDays.Add(d);
         snap.DemandValid = !mgr->DemandDirty;
@@ -130,12 +133,21 @@ public sealed unsafe class IslandReader
                 var b = shifts[(int)row.RowId];
                 craft.Supply = ((CraftworkSupply)(b >> 4)).ToString();
                 craft.DemandShift = ((CraftworkDemandShift)(b & 0xF)).ToString();
+                craft.SupplyLevel = b >> 4;
             }
 
             craft.Popularity = Popularity(popNow, row.RowId);
             craft.NextPopularity = Popularity(popNext, row.RowId);
+            craft.PopularityPercent = PopularityRatio(popNow, row.RowId);
+            craft.NextPopularityPercent = PopularityRatio(popNext, row.RowId);
             snap.Crafts.Add(craft);
         }
+    }
+
+    private static int PopularityRatio(MJICraftworksPopularity? pop, uint craftId)
+    {
+        if (pop == null || craftId >= pop.Value.Popularity.Count) return 0;
+        return pop.Value.Popularity[(int)craftId].ValueNullable?.Ratio ?? 0;
     }
 
     private static string Popularity(MJICraftworksPopularity? pop, uint craftId)
@@ -308,8 +320,11 @@ public sealed unsafe class IslandReader
         {
             var id = favors->CraftObjectIds[i];
             if (id == 0) continue;
+            var hours = crafts.GetRowOrDefault(id)?.CraftingTime ?? 0;
             snap.Favors.Add(new Favor
             {
+                Hours = hours,
+                Required = hours == 6 ? 6 : 8,
                 Index = i,
                 CraftId = id,
                 Name = crafts.GetRowOrDefault(id) is { } c ? Name(c.Item.ValueNullable) : $"#{id}",

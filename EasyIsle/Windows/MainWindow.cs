@@ -36,7 +36,7 @@ public sealed class MainWindow : Window
 
     public override void Draw()
     {
-        if (autoRefresh && DateTime.UtcNow - lastRead > TimeSpan.FromSeconds(1))
+        if (autoRefresh && DateTime.UtcNow - lastRead > TimeSpan.FromSeconds(3))
         {
             plugin.Refresh();
             lastRead = DateTime.UtcNow;
@@ -82,6 +82,7 @@ public sealed class MainWindow : Window
 
         ImGui.Separator();
         if (!ImGui.BeginTabBar("##tabs")) return;
+        Tab("Plan", DrawPlan);
         Tab("Island", () => DrawIsland(s));
         Tab($"Crafts ({s.Crafts.Count(c => c.Available)})", () => DrawCrafts(s));
         Tab("Isleventory", () => DrawIsleventory(s));
@@ -114,12 +115,13 @@ public sealed class MainWindow : Window
 
         Row("On the island", s.OnIsland ? "yes" : "no");
         Row("Island rank", $"{s.Rank} ({s.Xp:N0} xp)");
-        Row("Groove", s.Groove.ToString());
+        Row("Groove", $"{s.Groove} / {s.GrooveMax}");
         Row("Cycle day", $"{s.CycleDay + 1} of 7 ({DayName(s.CycleDay)})");
         Row("Rest days", s.RestDays.Count == 0 ? "not loaded" : string.Join(", ", s.RestDays.Select(d => d < 7 ? $"{DayName(d)} (this week)" : $"{DayName(d - 7)} (next week)")));
         Row("Supply & Demand", s.DemandValid ? $"loaded (popularity set {s.PopularityRow}, next {s.NextPopularityRow})" : "not loaded");
         Row("Cabin level", s.CabinLevel.ToString());
-        for (var i = 0; i < s.Workshops.Count; i++) Row($"Workshop {i + 1}", Describe(s.Workshops[i]));
+        for (var i = 0; i < s.Workshops.Count; i++)
+            Row($"Workshop {i + 1}", s.Workshops[i].Placed ? $"Workshop {Roman(s.Workshops[i].Level + 1)}" + (s.Workshops[i].UnderConstruction ? ", under construction" : string.Empty) : "not built");
         foreach (var e in s.Expeditions)
             Row($"Granary {e.Granary}", e.ExpeditionId == 0 ? "idle" : $"on an expedition to {e.Destination} ({e.DaysRemaining} day(s) left)");
         Row("Cropland", Describe(s.Farm));
@@ -138,6 +140,85 @@ public sealed class MainWindow : Window
 
             if (ImGui.Button("Copy raw data")) ImGui.SetClipboardText(s.RawIslandState);
         }
+    }
+
+    private static string Roman(int n) => n switch { 1 => "I", 2 => "II", 3 => "III", 4 => "IV", 5 => "V", _ => n.ToString() };
+
+    private void DrawPlan()
+    {
+        var cfg = plugin.Configuration;
+        var changed = false;
+        var gather = cfg.AllowGathering;
+        if (ImGui.Checkbox("Count materials I can still gather", ref gather)) { cfg.AllowGathering = gather; changed = true; }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("On: the plan may use gatherable materials you're short on, and lists what to gather.\nOff: only what's in your isleventory right now.");
+        ImGui.SameLine();
+        var favors = cfg.PrioritizeFavors;
+        if (ImGui.Checkbox("Prioritize Felicitous Favors", ref favors)) { cfg.PrioritizeFavors = favors; changed = true; }
+        if (changed)
+        {
+            cfg.Save();
+            plugin.Replan();
+        }
+
+        var plan = plugin.Plan;
+        if (plan == null)
+        {
+            ImGui.TextColored(Muted, "No plan yet.");
+            return;
+        }
+
+        if (plan.Cycle >= 0)
+        {
+            ImGui.TextUnformatted($"Recommended agenda for cycle {plan.Cycle + 1} ({DayName(plan.Cycle)})");
+            ImGui.TextColored(Good, $"About {plan.Total:N0} cowries. Groove {plugin.Snapshot?.Groove} -> {plan.GrooveAfter}.");
+            ImGui.TextColored(Muted, "In the Isleworks agenda, select that cycle and add these to each workshop from the top down.");
+        }
+
+        foreach (var n in plan.Notes) ImGui.TextColored(Warn, n);
+        if (plan.FavorItemsBoosted.Count > 0)
+            ImGui.TextColored(Muted, "Favor items pushed: " + string.Join(", ", plan.FavorItemsBoosted));
+
+        // Workshops with the same agenda are shown once.
+        var groups = plan.Workshops
+            .GroupBy(w => string.Join("|", w.Crafts.Select(c => c.Craft.Id)))
+            .ToList();
+        foreach (var g in groups)
+        {
+            var list = g.ToList();
+            var first = list[0];
+            ImGui.Spacing();
+            var label = list.Count == 1 ? $"Workshop {first.Workshop}" : "Workshops " + string.Join(", ", list.Select(w => w.Workshop));
+            ImGui.TextUnformatted($"{label}  ({first.Hours} h, about {list.Sum(w => w.Total):N0} cowries)");
+            if (!ImGui.BeginTable($"##plan{first.Workshop}", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders)) continue;
+            ImGui.TableSetupColumn("Start", ImGuiTableColumnFlags.WidthFixed, 60);
+            ImGui.TableSetupColumn("Item");
+            ImGui.TableSetupColumn("Hours", ImGuiTableColumnFlags.WidthFixed, 50);
+            ImGui.TableSetupColumn("Bonus", ImGuiTableColumnFlags.WidthFixed, 90);
+            ImGui.TableSetupColumn("Cowries", ImGuiTableColumnFlags.WidthFixed, 110);
+            ImGui.TableHeadersRow();
+            foreach (var c in first.Crafts)
+            {
+                ImGui.TableNextRow();
+                Cell($"+{c.StartHour} h");
+                Cell(c.Craft.Name);
+                Cell(c.Craft.Hours.ToString());
+                Cell(c.Efficient ? "efficient x2" : "-");
+                Cell($"{c.ValueEach} x{c.Count} = {c.Total}");
+            }
+
+            ImGui.EndTable();
+        }
+
+        if (plan.Shortfalls.Count > 0)
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(Warn, "Gather before the cycle starts:");
+            foreach (var sf in plan.Shortfalls)
+                ImGui.BulletText($"{sf.Need - sf.Have} {sf.Name} (have {sf.Have}, plan uses {sf.Need})" + (sf.Gatherable ? string.Empty : " - not gatherable!"));
+        }
+
+        ImGui.Spacing();
+        ImGui.TextColored(Muted, "Uses today's Supply & Demand. Predicting each item's peak day (and the best rest day) comes next.");
     }
 
     private static string DayName(int cycleDay) =>

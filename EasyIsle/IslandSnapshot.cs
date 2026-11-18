@@ -18,6 +18,11 @@ public class IslandSnapshot
     public uint Xp { get; set; }
     public uint Groove { get; set; }
 
+    /// <summary>Groove cap from built landmarks (15/20/25/35/45).</summary>
+    public int GrooveMax { get; set; }
+
+    public int LandmarksBuilt { get; set; }
+
     /// <summary>0-6, 0 = reset day (Tuesday).</summary>
     public int CycleDay { get; set; }
 
@@ -83,6 +88,14 @@ public class Craft
     public string DemandShift { get; set; } = string.Empty;
     public string Popularity { get; set; } = string.Empty;
     public string NextPopularity { get; set; } = string.Empty;
+
+    /// <summary>CraftworkSupply as a number (0 = Nonexistent ... 4 = Overflowing), -1 when unknown.</summary>
+    public int SupplyLevel { get; set; } = -1;
+
+    /// <summary>Popularity multiplier in percent (80-140), 0 when unknown.</summary>
+    public int PopularityPercent { get; set; }
+
+    public int NextPopularityPercent { get; set; }
 }
 
 [Serializable]
@@ -151,6 +164,10 @@ public class Favor
     public int Scheduled { get; set; }
     public bool Shipped { get; set; }
     public bool Bonus { get; set; }
+    public int Hours { get; set; }
+
+    /// <summary>Items the request asks for: 8 for 4 h and 8 h crafts, 6 for 6 h crafts.</summary>
+    public int Required { get; set; }
 }
 
 [Serializable]

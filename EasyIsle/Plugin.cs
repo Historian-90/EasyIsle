@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.IO;
 using System.Text.Json;
 using Dalamud.Game.Command;
@@ -7,6 +9,7 @@ using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using EasyIsle.Windows;
+using Lumina.Excel.Sheets;
 
 namespace EasyIsle;
 
@@ -26,6 +29,21 @@ public sealed class Plugin : IDalamudPlugin
     public IslandReader Reader { get; }
     public IslandSnapshot? Snapshot { get; private set; }
     public string? ReadError { get; private set; }
+    public Plan? Plan { get; private set; }
+
+    private HashSet<uint>? gatherable;
+
+    /// <summary>MJIItemPouch rows you can gather yourself (from the MJIGatheringItem sheet).</summary>
+    public HashSet<uint> Gatherable
+    {
+        get
+        {
+            if (gatherable != null) return gatherable;
+            var items = DataManager.GetExcelSheet<MJIGatheringItem>().Select(g => g.Item.RowId).Where(i => i != 0).ToHashSet();
+            gatherable = DataManager.GetExcelSheet<MJIItemPouch>().Where(p => items.Contains(p.Item.RowId)).Select(p => p.RowId).ToHashSet();
+            return gatherable;
+        }
+    }
 
     private readonly WindowSystem windowSystem = new("EasyIsle");
     private readonly MainWindow mainWindow;
@@ -67,11 +85,31 @@ public sealed class Plugin : IDalamudPlugin
         {
             Snapshot = Reader.Read();
             ReadError = null;
+            Replan();
         }
         catch (Exception ex)
         {
             ReadError = ex.Message;
             Log.Error(ex, "Couldn't read island data");
+        }
+    }
+
+    public void Replan()
+    {
+        if (Snapshot == null) return;
+        try
+        {
+            Plan = Planner.Make(Snapshot, new PlanOptions
+            {
+                AllowGathering = Configuration.AllowGathering,
+                PrioritizeFavors = Configuration.PrioritizeFavors,
+            }, Gatherable);
+        }
+        catch (Exception ex)
+        {
+            Plan = null;
+            ReadError = "Planner: " + ex.Message;
+            Log.Error(ex, "Planner failed");
         }
     }
 
