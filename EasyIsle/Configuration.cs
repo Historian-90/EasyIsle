@@ -32,6 +32,9 @@ public class Configuration : IPluginConfiguration
     /// <summary>The island's TerritoryType row, seen while on the island (for map flags and weather).</summary>
     public uint IslandTerritory { get; set; }
 
+    /// <summary>The island's Cave System map row, learned from the game's map window.</summary>
+    public uint IslandCaveMap { get; set; }
+
     /// <summary>Today's week plan, kept so it doesn't change under you.</summary>
     public WeekLock? WeekLock { get; set; }
 

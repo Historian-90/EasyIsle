@@ -528,7 +528,7 @@ public sealed class MainWindow : Window
     {
         ImGui.TextColored(Muted, $"    {label} at ({spot.X:0.#}, {spot.Y:0.#}), {spot.When}.");
         ImGui.SameLine();
-        if (ImGui.SmallButton($"Map##{label}{spot.Name}")) plugin.FlagOnMap(spot.X, spot.Y);
+        if (ImGui.SmallButton($"Map##{label}{spot.Name}")) status = plugin.FlagOnMap(spot.X, spot.Y) ?? string.Empty;
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Puts a flag on this spot and opens the map.");
         if (!spot.Rare) return;
         var w = WindowFor(spot, now);
@@ -608,7 +608,7 @@ public sealed class MainWindow : Window
 
     private void DrawGatherSpot(GatherSpot g, string id)
     {
-        if (ImGui.SmallButton($"Map##{id}{g.PouchId}")) plugin.FlagOnMap(g.X, g.Y);
+        if (ImGui.SmallButton($"Map##{id}{g.PouchId}")) status = plugin.FlagOnMap(g.X, g.Y, g.Cave) ?? string.Empty;
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip($"({g.X:0.0}, {g.Y:0.0}){(g.Cave ? " in the cave system" : string.Empty)}, search within about {g.Radius:0.#} of it.\nNeeds {Tool(g.Tier)}.");
     }
@@ -768,7 +768,7 @@ public sealed class MainWindow : Window
             else ImGui.TextUnformatted($"in {IslandClock.Span(w.Start - now)}");
             Cell(owned.TryGetValue(spot.Name, out var n) ? n.ToString() : "");
             ImGui.TableNextColumn();
-            if (ImGui.SmallButton($"Map##find{spot.Name}")) plugin.FlagOnMap(spot.X, spot.Y);
+            if (ImGui.SmallButton($"Map##find{spot.Name}")) status = plugin.FlagOnMap(spot.X, spot.Y) ?? string.Empty;
             if (ImGui.IsItemHovered()) ImGui.SetTooltip($"({spot.X:0.#}, {spot.Y:0.#})");
         }
 

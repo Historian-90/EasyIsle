@@ -90,18 +90,51 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
-    /// <summary>Puts the game's map flag on a spot of the island and opens the map. Nothing else.</summary>
-    public void FlagOnMap(float x, float y)
+    /// <summary>
+    /// Puts the game's map flag on a spot of the island and opens the map. Nothing else.
+    /// Cave spots go on the Cave System map once it's been seen (see LearnCaveMap); until then the
+    /// surface map, and the returned note says how to fix that.
+    /// </summary>
+    public string? FlagOnMap(float x, float y, bool cave = false)
     {
         try
         {
             _ = IslandWeather;
-            if (islandMap == 0) return;
-            GameGui.OpenMapWithMapLink(new MapLinkPayload(IslandTerritory, islandMap, x, y));
+            if (islandMap == 0) return "The island map isn't loaded.";
+            var map = islandMap;
+            string? note = null;
+            if (cave)
+            {
+                if (Configuration.IslandCaveMap != 0) map = Configuration.IslandCaveMap;
+                else note = "Flagged on the surface map: open the map and switch it to Cave System once, then press Map again.";
+            }
+
+            GameGui.OpenMapWithMapLink(new MapLinkPayload(IslandTerritory, map, x, y));
+            return note;
         }
         catch (Exception ex)
         {
             Log.Warning(ex, "Couldn't open the map");
+            return "Couldn't open the map: " + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// The island has two maps in the same zone (Surface Terrain and Cave System). The game's data
+    /// doesn't say which row is the cave, so watch the map window: any other island map shown there
+    /// (switching floors, or the map following you into the cave) is the cave map.
+    /// </summary>
+    private unsafe void LearnCaveMap()
+    {
+        _ = IslandWeather;
+        var agent = FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentMap.Instance();
+        if (agent == null || islandMap == 0) return;
+        foreach (var (territory, map) in new[] { (agent->SelectedTerritoryId, agent->SelectedMapId), (agent->CurrentTerritoryId, agent->CurrentMapId) })
+        {
+            if (territory != IslandTerritory || map == 0 || map == islandMap || map == Configuration.IslandCaveMap) continue;
+            Configuration.IslandCaveMap = map;
+            Configuration.Save();
+            Log.Information($"Island cave map is {map}");
         }
     }
 
@@ -151,6 +184,8 @@ public sealed class Plugin : IDalamudPlugin
                 islandWeather = null;
                 Configuration.Save();
             }
+
+            if (Snapshot.OnIsland) LearnCaveMap();
 
             Replan();
         }
