@@ -131,16 +131,32 @@ public sealed class Plugin : IDalamudPlugin
         };
         var gather = Gatherable;
         var feedChoice = Configuration.FeedPouchId;
+        var savedWeek = Configuration.WeekLock;
+        var savedCrops = new Dictionary<int, uint>(Configuration.CropLock);
+        var season = IslandReader.SeasonStartUtc(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        var optionKey = $"{Configuration.AllowGathering}|{Configuration.PrioritizeFavors}";
         System.Threading.Tasks.Task.Run(() =>
         {
             try
             {
                 var forecasts = WeekPlanner.Forecasts(copy);
-                var week = new WeekPlanner(copy, options, gather, forecasts).Make();
+                var savedOk = savedWeek != null && savedWeek.Season == season && savedWeek.CycleDay == copy.CycleDay && savedWeek.Options == optionKey;
+                var week = new WeekPlanner(copy, options, gather, forecasts) { Saved = savedOk ? savedWeek : null }.Make();
+                var crops = CropAdvisor.Advise(copy, week, feedChoice);
+                var cropLock = CropAdvisor.ApplyLock(crops, savedCrops);
                 Forecasts = forecasts;
                 Week = week;
                 Granary = GranaryAdvisor.Advise(copy, week);
-                Crops = CropAdvisor.Advise(copy, week, feedChoice);
+                Crops = crops;
+
+                // Keep what was decided so the advice sits still.
+                Framework.RunOnFrameworkThread(() =>
+                {
+                    if (!week.Kept && week.Days.Count > 0)
+                        Configuration.WeekLock = new WeekLock { Season = season, CycleDay = copy.CycleDay, Options = optionKey, Cycles = week.Days.Select(d => d.Cycle).ToList(), Chains = week.Chains, RestAdvice = week.RestAdvice };
+                    Configuration.CropLock = cropLock;
+                    Configuration.Save();
+                });
             }
             catch (Exception ex)
             {
@@ -155,6 +171,22 @@ public sealed class Plugin : IDalamudPlugin
         {
             if (replanQueued) Framework.RunOnFrameworkThread(() => Replan());
         });
+    }
+
+    /// <summary>Drops the kept week plan and plans again from scratch.</summary>
+    public void NewWeekPlan()
+    {
+        Configuration.WeekLock = null;
+        Configuration.Save();
+        Replan(true);
+    }
+
+    /// <summary>Drops the kept planting list and works out a new one.</summary>
+    public void NewCropPlan()
+    {
+        Configuration.CropLock = [];
+        Configuration.Save();
+        Replan(true);
     }
 
     private string Signature(IslandSnapshot s)

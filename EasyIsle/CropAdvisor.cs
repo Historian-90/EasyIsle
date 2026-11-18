@@ -19,6 +19,7 @@ public class CropNeed
     public int PlotsNeeded { get; set; }
     public int Seeds { get; init; }
     public uint SeedPouchId { get; init; }
+    public uint SeedIcon { get; init; }
 
     /// <summary>Weeks the stock (plus what the gardener holds) lasts at this pace; null when nothing uses it.</summary>
     public double? WeeksLeft => PerWeek > 0.01 ? (Stock + Waiting) / PerWeek : null;
@@ -38,6 +39,9 @@ public class CropPlan
     public List<PlotAdvice> Plots { get; } = [];
     public List<string> Alerts { get; } = [];
     public FeedRecipe? Feed { get; set; }
+
+    /// <summary>True when the planting list is the saved one (kept until those plots are planted).</summary>
+    public bool Kept { get; set; }
     public int Animals { get; set; }
     public double FeedPerWeek { get; set; }
 
@@ -61,6 +65,50 @@ public class CropPlan
 /// </summary>
 public static class CropAdvisor
 {
+    /// <summary>
+    /// Keeps the planting list still: plots in the saved list stay assigned until they're planted;
+    /// every other plot is left alone. A new list is only made when the saved one is finished (or the
+    /// player asks for a new one). Returns the saved list as it should be stored now.
+    /// </summary>
+    public static Dictionary<int, uint> ApplyLock(CropPlan plan, Dictionary<int, uint> saved)
+    {
+        // Entries stay until that plot grows the planned crop.
+        var current = new Dictionary<int, uint>();
+        foreach (var (slot, crop) in saved)
+        {
+            var a = plan.Plots.FirstOrDefault(p => p.Slot == slot);
+            if (a != null && a.Plot.CropPouchId != crop) current[slot] = crop;
+        }
+
+        if (current.Count == 0)
+        {
+            // Nothing saved (or all done): start a new list from the fresh advice.
+            foreach (var a in plan.Plots.Where(a => a.Change))
+                current[a.Slot] = a.Recommended!.PouchId;
+            plan.Kept = false;
+        }
+        else
+        {
+            plan.Kept = true;
+        }
+
+        foreach (var a in plan.Plots)
+        {
+            if (current.TryGetValue(a.Slot, out var crop))
+            {
+                a.Recommended = plan.Needs.FirstOrDefault(n => n.PouchId == crop) ?? a.Recommended;
+            }
+            else
+            {
+                // Not in the list: leave it as it is.
+                a.Recommended = plan.Needs.FirstOrDefault(n => n.PouchId == a.Plot.CropPouchId);
+            }
+        }
+
+        foreach (var n in plan.Needs) n.PlotsRecommended = plan.Plots.Count(a => a.Recommended == n);
+        return current;
+    }
+
     private const double PerPlotWeek = 17.5;
     private const double Allowance = 7;          // per week, for crops no plan uses right now
     private const double TargetWeeks = 6;        // stock worth keeping on hand
@@ -121,6 +169,7 @@ public static class CropAdvisor
                 PlotsNow = s.FarmPlots.Count(f => f.CropPouchId == p.PouchId),
                 Seeds = seed?.Count ?? 0,
                 SeedPouchId = seed?.PouchId ?? 0,
+                SeedIcon = seed?.Icon ?? 0,
             });
         }
 

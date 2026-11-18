@@ -182,6 +182,9 @@ public sealed class MainWindow : Window
 
         var range = plan.Days.Count == 1 ? $"cycle {plan.Days[0].Cycle + 1}" : $"cycles {string.Join(", ", plan.Days.Select(d => d.Cycle + 1))}";
         ImGui.TextColored(Good, $"This week: about {plan.Total:N0} cowries over {range}. Groove {plugin.Snapshot?.Groove} -> {plan.GrooveAfter}.");
+        ImGui.TextColored(Muted, "This plan stays put for today; it's re-planned once a day with the new Supply & Demand reading.");
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Re-plan now")) plugin.NewWeekPlan();
         ImGui.TextColored(Muted, $"Peaks: {plan.PeaksKnown} known, {plan.PeaksPartly} narrowed down, {plan.PeaksUnknown} unknown. Open the Isleworks agenda once each cycle to sharpen the forecast.");
         if (plan.RestAdvice != null) ImGui.TextColored(Warn, plan.RestAdvice);
         if (plan.FavorItemsBoosted.Count > 0)
@@ -211,6 +214,9 @@ public sealed class MainWindow : Window
     private bool showAllCrops;
     private uint highlightCrop;
     private uint nextHighlight;
+
+    private static ImTextureID GameIcon(uint icon) =>
+        Plugin.TextureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(icon)).GetWrapOrEmpty().Handle;
 
     private static void Icon(uint icon, float size)
     {
@@ -243,6 +249,9 @@ public sealed class MainWindow : Window
 
         var changes = plan.Plots.Where(p => p.Change).ToList();
         ImGui.Spacing();
+        ImGui.TextColored(Muted, "The planting list stays put until those plots are planted.");
+        ImGui.SameLine();
+        if (ImGui.SmallButton("New planting list")) plugin.NewCropPlan();
         if (changes.Count == 0)
         {
             ImGui.TextColored(Good, plan.Needs.Count == 0
@@ -262,7 +271,7 @@ public sealed class MainWindow : Window
                 var crop = g.First().Recommended!;
                 ImGui.TextUnformatted("  ");
                 ImGui.SameLine();
-                Icon(crop.Icon, ImGui.GetTextLineHeight());
+                Icon(crop.SeedIcon != 0 ? crop.SeedIcon : crop.Icon, ImGui.GetTextLineHeight());
                 ImGui.SameLine();
                 ImGui.TextUnformatted($"{crop.Name} ({g.Count()}):");
                 ImGui.SameLine();
@@ -337,11 +346,15 @@ public sealed class MainWindow : Window
                 : a.Change ? new Vector4(0.45f, 0.3f, 0.1f, 1f)
                 : new Vector4(0.15f, 0.3f, 0.15f, 1f);
             draw.AddRectFilled(min, max, ImGui.GetColorU32(bg), 4f);
-            var icon = snap.Isleventory.FirstOrDefault(p => p.PouchId == a.Plot.CropPouchId)?.Icon ?? 0;
-            if (icon != 0)
+            // Growing: the crop. To plant: the seed (small in the corner if something else grows there now).
+            var cropIcon = snap.Isleventory.FirstOrDefault(p => p.PouchId == a.Plot.CropPouchId)?.Icon ?? 0;
+            var seedIcon = a.Change ? a.Recommended!.SeedIcon : 0u;
+            if (cropIcon != 0)
+                draw.AddImage(GameIcon(cropIcon), min + new Vector2(8, 8), max - new Vector2(8, 8));
+            if (seedIcon != 0)
             {
-                var tex = Plugin.TextureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(icon)).GetWrapOrEmpty();
-                draw.AddImage(tex.Handle, min + new Vector2(8, 8), max - new Vector2(8, 8));
+                if (cropIcon == 0) draw.AddImage(GameIcon(seedIcon), min + new Vector2(8, 8), max - new Vector2(8, 8));
+                else draw.AddImage(GameIcon(seedIcon), max - new Vector2(24, 24), max - new Vector2(2, 2));
             }
 
             draw.AddText(min + new Vector2(3, 1), ImGui.GetColorU32(new Vector4(1, 1, 1, 1)), a.Slot.ToString());
@@ -349,7 +362,7 @@ public sealed class MainWindow : Window
             {
                 var t = a.Plot.Yield.ToString();
                 var size = ImGui.CalcTextSize(t);
-                draw.AddText(max - size - new Vector2(3, 1), ImGui.GetColorU32(a.Plot.Yield >= 50 ? Warn : Good), t);
+                draw.AddText(new Vector2(max.X - size.X - 3, min.Y + 1), ImGui.GetColorU32(a.Plot.Yield >= 50 ? Warn : Good), t);
             }
 
             if (a.Change && highlightCrop != 0 && a.Recommended!.PouchId == highlightCrop)
@@ -365,13 +378,13 @@ public sealed class MainWindow : Window
                 if (a.Plot.CropPouchId != 0) text += $"\nGrowth {a.Plot.Growth}, water {a.Plot.Water}";
                 text += a.Plot.UnderCare ? "\nGardener: tending" : a.Plot.CareHalted ? "\nGardener: stopped" : "\nGardener: not entrusted";
                 if (a.Plot.Yield > 0) text += $"\nWaiting with the gardener: {a.Plot.Yield}";
-                if (a.Change) text += $"\nReplant with {a.Recommended!.Name}";
+                if (a.Change) text += a.Plot.CropPouchId == 0 ? $"\nPlant {a.Recommended!.Name}" : $"\nReplant with {a.Recommended!.Name}";
                 ImGui.SetTooltip(text);
             }
         }
 
         ImGui.SetCursorScreenPos(origin + new Vector2(0, area.Y + gap));
-        ImGui.TextColored(Muted, "Laid out as you see it walking up from the bottom right. Orange border = plant/replant (hover a crop below to light up its plots). Corner number = produce waiting with the gardener.");
+        ImGui.TextColored(Muted, "Seed icon = plant that seed here. Crop icon = growing. Orange border = still to plant (hover a crop below to light up its plots). Top-right number = produce waiting with the gardener.");
     }
 
     private void DrawFeed(CropPlan plan, IslandSnapshot snap)
@@ -388,8 +401,7 @@ public sealed class MainWindow : Window
                 if (ImGui.Selectable(r.OutputName, r.OutputPouchId == plan.Feed?.OutputPouchId))
                 {
                     plugin.Configuration.FeedPouchId = r.OutputPouchId;
-                    plugin.Configuration.Save();
-                    plugin.Replan(true);
+                    plugin.NewCropPlan();
                 }
             }
 

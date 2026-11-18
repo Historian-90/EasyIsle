@@ -27,6 +27,12 @@ public class WeekPlan
     /// <summary>Set when moving a rest day would earn noticeably more.</summary>
     public string? RestAdvice { get; set; }
 
+    /// <summary>The chosen craft ids per cycle and workshop (kept so the plan can stay put).</summary>
+    public List<List<List<uint>>> Chains { get; set; } = [];
+
+    /// <summary>True when this plan was restored from the saved one instead of searched again.</summary>
+    public bool Kept { get; set; }
+
     public int PeaksKnown { get; set; }
     public int PeaksPartly { get; set; }
     public int PeaksUnknown { get; set; }
@@ -127,6 +133,9 @@ public sealed class WeekPlanner
         return Enumerable.Range(s.CycleDay + 1, Math.Max(0, 6 - s.CycleDay)).Where(c => !rest.Contains(c)).ToList();
     }
 
+    /// <summary>A plan saved earlier today; reused as long as it fits the same cycles and workshops.</summary>
+    public WeekLock? Saved { get; init; }
+
     public WeekPlan Make()
     {
         var plan = new WeekPlan();
@@ -156,8 +165,20 @@ public sealed class WeekPlanner
             return plan;
         }
 
+        if (Saved != null && Saved.Cycles.SequenceEqual(cycles) && Saved.Chains.Count == cycles.Count
+            && Saved.Chains.All(d => d.Count == workshopLevels.Count) && Saved.Chains.All(d => d.All(c => c.All(byId.ContainsKey))))
+        {
+            var kept = Saved.Chains.Select(d => d.Select(c => c.ToList()).ToArray()).ToArray();
+            Fill(plan, cycles, kept);
+            plan.Kept = true;
+            plan.RestAdvice = Saved.RestAdvice;
+            plan.Chains = Saved.Chains;
+            return plan;
+        }
+
         var best = Search(cycles, out var bestScore);
         Fill(plan, cycles, best);
+        plan.Chains = best.Select(d => d.Select(c => c.ToList()).ToList()).ToList();
 
         // Rest day: would a different working cycle be worth more than one we're resting?
         var restFuture = s.RestDays.Where(d => d < 7 && d > s.CycleDay).ToList();
@@ -459,4 +480,16 @@ public sealed class WeekPlanner
             plan.FavorItemsBoosted.Add($"{byId[id].Name} ({Math.Min(made, need)}/{need} planned)");
         }
     }
+}
+
+/// <summary>A week plan kept for the rest of the day (CJ: advice has to sit still).</summary>
+[Serializable]
+public class WeekLock
+{
+    public string Season { get; set; } = string.Empty;
+    public int CycleDay { get; set; }
+    public string Options { get; set; } = string.Empty;
+    public List<int> Cycles { get; set; } = [];
+    public List<List<List<uint>>> Chains { get; set; } = [];
+    public string? RestAdvice { get; set; }
 }

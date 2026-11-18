@@ -26,6 +26,12 @@ public class Configuration : IPluginConfiguration
     /// <summary>Feed the pasture uses (isleventory row of the feed); 0 = let EasyIsle pick.</summary>
     public uint FeedPouchId { get; set; }
 
+    /// <summary>Today's week plan, kept so it doesn't change under you.</summary>
+    public WeekLock? WeekLock { get; set; }
+
+    /// <summary>Planting list (plot -> crop's isleventory row), kept until those plots are planted.</summary>
+    public Dictionary<int, uint> CropLock { get; set; } = [];
+
     public bool AllowGathering { get; set; } = true;
 
     public bool PrioritizeFavors { get; set; }
