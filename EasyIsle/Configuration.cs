@@ -20,8 +20,8 @@ public class Configuration : IPluginConfiguration
     /// <summary>Expedition areas as last seen in the granary window (unlocked ones only).</summary>
     public List<Destination> KnownDestinations { get; set; } = [];
 
-    /// <summary>Cropland plot positions (slot -> x, z), remembered once seen.</summary>
-    public Dictionary<int, float[]> PlotPositions { get; set; } = [];
+    /// <summary>Seed item -> produce item, as the Cropland Management window shows them.</summary>
+    public Dictionary<uint, uint> CropYields { get; set; } = [];
 
     /// <summary>Feed the pasture uses (isleventory row of the feed); 0 = let EasyIsle pick.</summary>
     public uint FeedPouchId { get; set; }

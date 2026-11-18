@@ -168,7 +168,7 @@ public sealed class Plugin : IDalamudPlugin
         foreach (var f in s.Favors) sb.Append(f.Delivered).Append(f.Scheduled);
         foreach (var e in s.Expeditions) sb.Append(e.ExpeditionId).Append(e.DaysRemaining);
         foreach (var d in s.Destinations) sb.Append(d.Unlocked ? 'y' : 'n');
-        foreach (var f in s.FarmPlots) sb.Append(f.SeedRow).Append(':').Append(f.Yield).Append(f.CareHalted ? 'h' : '-').Append(f.Position != null ? 'p' : '-');
+        foreach (var f in s.FarmPlots) sb.Append(f.SeedRow).Append(':').Append(f.Yield).Append(f.CareHalted ? 'h' : '-').Append(f.UnderCare ? 'c' : '-');
         sb.Append('|').Append(s.Animals.Count).Append('|').Append(Configuration.FeedPouchId);
         foreach (var season in s.SupplyHistory) sb.Append(season.Key).Append(season.Value.Count);
         return sb.ToString();

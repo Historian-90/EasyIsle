@@ -240,6 +240,7 @@ public sealed unsafe class IslandReader
         }
 
         var counts = live ?? config.LastIsleventory;
+        var categoryOf = new Dictionary<uint, uint>();
         foreach (var row in sheet)
         {
             if (row.RowId == 0 || row.Item.RowId == 0) continue;
@@ -251,10 +252,63 @@ public sealed unsafe class IslandReader
                 Category = row.Category.ValueNullable?.Singular.ExtractText() ?? string.Empty,
                 Icon = row.Item.ValueNullable?.Icon ?? 0,
                 CropRow = row.Crop.RowId,
-                IsProduce = row.Crop.RowId != 0 && row.Crop.ValueNullable?.Item.RowId != row.Item.RowId,
                 Count = counts.TryGetValue(row.RowId, out var c) ? c : 0,
                 Discovered = !mgr->IsPouchItemLocked((ushort)row.RowId),
             });
+            categoryOf[row.RowId] = row.Category.RowId;
+        }
+
+        LinkProduce(snap, categoryOf);
+    }
+
+    /// <summary>
+    /// Only seed rows point at their crop (MJIItemPouch.Crop), so produce has to be matched up:
+    /// produce is the category with one item per crop and no crop links, in the same order as the
+    /// crop rows. What the Cropland Management window shows (seed -> yield) wins when it's known.
+    /// </summary>
+    private void LinkProduce(IslandSnapshot snap, Dictionary<uint, uint> categoryOf)
+    {
+        var crops = Plugin.DataManager.GetExcelSheet<MJICropSeed>()
+            .Where(c => c.RowId != 0 && c.Item.RowId != 0).Select(c => c.RowId).OrderBy(r => r).ToList();
+        var produceCategory = snap.Isleventory
+            .GroupBy(p => categoryOf.GetValueOrDefault(p.PouchId))
+            .FirstOrDefault(g => g.Key != 0 && g.Count() == crops.Count && g.All(p => p.CropRow == 0));
+        if (produceCategory != null)
+        {
+            var ordered = produceCategory.OrderBy(p => p.PouchId).ToList();
+            for (var k = 0; k < ordered.Count; k++)
+            {
+                ordered[k].CropRow = crops[k];
+                ordered[k].IsProduce = true;
+            }
+        }
+
+        // Learn seed -> produce from the Cropland Management window when it's open.
+        var agent = AgentMJIFarmManagement.Instance();
+        if (agent != null && agent->IsAgentActive())
+        {
+            var changed = false;
+            for (var i = 0; i < agent->NumSlots && i < agent->Slots.Length; i++)
+            {
+                var slot = agent->Slots[i];
+                if (slot.SeedItemId == 0 || slot.YieldItemId == 0) continue;
+                if (config.CropYields.TryGetValue(slot.SeedItemId, out var known) && known == slot.YieldItemId) continue;
+                config.CropYields[slot.SeedItemId] = slot.YieldItemId;
+                changed = true;
+            }
+
+            if (changed) config.Save();
+        }
+
+        foreach (var (seedItem, yieldItem) in config.CropYields)
+        {
+            var seed = snap.Isleventory.FirstOrDefault(p => p.ItemId == seedItem && !p.IsProduce);
+            var produce = snap.Isleventory.FirstOrDefault(p => p.ItemId == yieldItem);
+            if (seed == null || produce == null || seed.CropRow == 0) continue;
+            foreach (var other in snap.Isleventory.Where(p => p.IsProduce && p.CropRow == seed.CropRow && p != produce))
+                other.CropRow = 0;
+            produce.CropRow = seed.CropRow;
+            produce.IsProduce = true;
         }
     }
 
@@ -346,7 +400,6 @@ public sealed unsafe class IslandReader
         }
 
         var slots = Math.Min((int)mgr->GetFarmSlotCount(), farm->SeedType.Length);
-        var positionsChanged = false;
         for (var i = 0; i < slots; i++)
         {
             var seed = farm->SeedType[i];
@@ -369,24 +422,9 @@ public sealed unsafe class IslandReader
                 plot.Crop = produce?.Name ?? $"seed #{seed}";
             }
 
-            // Where the plot is: its object in the object table (loaded while you're near the farm).
-            var index = (int)farm->PlotObjectIndex[i];
-            var obj = index > 0 && index < Plugin.ObjectTable.Length ? Plugin.ObjectTable[index] : null;
-            if (obj != null)
-            {
-                var pos = new[] { obj.Position.X, obj.Position.Z };
-                if (!config.PlotPositions.TryGetValue(i + 1, out var old) || Math.Abs(old[0] - pos[0]) > 0.5f || Math.Abs(old[1] - pos[1]) > 0.5f)
-                {
-                    config.PlotPositions[i + 1] = pos;
-                    positionsChanged = true;
-                }
-            }
-
-            plot.Position = config.PlotPositions.TryGetValue(i + 1, out var p2) ? p2 : null;
             snap.FarmPlots.Add(plot);
         }
 
-        if (positionsChanged) config.Save();
     }
 
     private void ReadFeedRecipes(IslandSnapshot snap)

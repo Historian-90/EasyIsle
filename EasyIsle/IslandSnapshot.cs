@@ -169,9 +169,6 @@ public class FarmPlot
 
     public bool UnderCare { get; set; }
     public bool CareHalted { get; set; }
-
-    /// <summary>World position (x, z) of the plot, when known.</summary>
-    public float[]? Position { get; set; }
 }
 
 [Serializable]
