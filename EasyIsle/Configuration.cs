@@ -17,6 +17,9 @@ public class Configuration : IPluginConfiguration
     /// <summary>Season start (yyyy-MM-dd, Tuesday reset) -> cycle (0-6) -> craft id -> supply/demand byte.</summary>
     public Dictionary<string, Dictionary<int, Dictionary<uint, int>>> SupplyHistory { get; set; } = [];
 
+    /// <summary>Expedition areas seen as unlocked in the granary window.</summary>
+    public List<int> UnlockedExpeditions { get; set; } = [];
+
     public bool AllowGathering { get; set; } = true;
 
     public bool PrioritizeFavors { get; set; }

@@ -189,6 +189,8 @@ public sealed class MainWindow : Window
             DrawDay(day);
         }
 
+        DrawGranaryAdvice();
+
         if (plan.Shortfalls.Count > 0)
         {
             ImGui.Spacing();
@@ -196,6 +198,38 @@ public sealed class MainWindow : Window
             foreach (var sf in plan.Shortfalls)
                 ImGui.BulletText($"{sf.Need - sf.Have} {sf.Name} (have {sf.Have}, plan uses {sf.Need})" + (sf.Gatherable ? string.Empty : " - not gatherable!"));
         }
+    }
+
+    private void DrawGranaryAdvice()
+    {
+        if (plugin.Granary is not { } g || g.advice.Count == 0) return;
+        ImGui.Spacing();
+        if (!ImGui.CollapsingHeader("Granary expeditions###granary", ImGuiTreeNodeFlags.DefaultOpen)) return;
+        foreach (var a in g.advice)
+        {
+            ImGui.TextUnformatted($"Granary {a.Granary}: {a.Action}");
+            ImGui.TextColored(Muted, "    " + a.Reason);
+        }
+
+        if (plugin.Snapshot is { DestinationsUnlockKnown: false })
+            ImGui.TextColored(Muted, "Open a granary's expedition window once so EasyIsle knows which areas you've unlocked.");
+
+        if (!ImGui.BeginTable("##rares", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders)) return;
+        ImGui.TableSetupColumn("Rare material");
+        ImGui.TableSetupColumn("On hand", ImGuiTableColumnFlags.WidthFixed, 70);
+        ImGui.TableSetupColumn("Plan uses / week", ImGuiTableColumnFlags.WidthFixed, 120);
+        ImGui.TableSetupColumn("Lasts", ImGuiTableColumnFlags.WidthFixed, 110);
+        ImGui.TableHeadersRow();
+        foreach (var r in g.rares.OrderBy(r => r.WeeksLeft ?? double.MaxValue))
+        {
+            ImGui.TableNextRow();
+            Cell(r.Name);
+            Cell(r.Have.ToString());
+            Cell(r.WeeklyUse > 0 ? r.WeeklyUse.ToString() : "-");
+            Cell(r.WeeksLeft is { } w ? (w < 1 ? "under a week" : $"about {w:0.#} weeks") : "-");
+        }
+
+        ImGui.EndTable();
     }
 
     private void DrawDay(DayPlan day)

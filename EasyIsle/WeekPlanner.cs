@@ -21,6 +21,9 @@ public class WeekPlan
     public int Total => Days.Sum(d => d.Total);
     public int GrooveAfter { get; set; }
 
+    /// <summary>Materials the whole plan uses (MJIItemPouch row -> amount).</summary>
+    public Dictionary<uint, int> MaterialUse { get; } = [];
+
     /// <summary>Set when moving a rest day would earn noticeably more.</summary>
     public string? RestAdvice { get; set; }
 
@@ -442,6 +445,7 @@ public sealed class WeekPlanner
         }
 
         var names = s.Isleventory.ToDictionary(p => p.PouchId, p => p.Name);
+        foreach (var (id, need) in result.used) plan.MaterialUse[id] = need;
         foreach (var (id, need) in result.used.OrderBy(u => names.GetValueOrDefault(u.Key)))
         {
             var have = stock.GetValueOrDefault(id);

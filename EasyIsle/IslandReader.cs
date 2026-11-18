@@ -72,6 +72,7 @@ public sealed unsafe class IslandReader
         ReadCrafts(mgr, snap);
         ReadIsleventory(mgr, snap);
         ReadExpeditions(mgr, snap);
+        ReadDestinations(snap);
         ReadFarm(mgr, snap);
         ReadPasture(mgr, snap);
         ReadFavors(mgr, snap);
@@ -247,6 +248,43 @@ public sealed unsafe class IslandReader
                 Count = counts.TryGetValue(row.RowId, out var c) ? c : 0,
                 Discovered = !mgr->IsPouchItemLocked((ushort)row.RowId),
             });
+        }
+    }
+
+    private void ReadDestinations(IslandSnapshot snap)
+    {
+        // Unlocked areas: the granary window's list, remembered once seen.
+        var agent = AgentMJIGatheringHouse.Instance();
+        if (agent != null && agent->Data != null && agent->Data->Initialized)
+        {
+            var seen = new List<int>();
+            foreach (var e in agent->Data->ExpeditionDescs.AsSpan())
+                if (e.ExpeditionId != 0) seen.Add(e.ExpeditionId);
+            if (seen.Count > 0 && !seen.SequenceEqual(config.UnlockedExpeditions))
+            {
+                config.UnlockedExpeditions = seen;
+                config.Save();
+            }
+        }
+
+        snap.DestinationsUnlockKnown = config.UnlockedExpeditions.Count > 0;
+        var areas = Plugin.DataManager.GetExcelSheet<MJIStockyardManagementArea>();
+        var table = Plugin.DataManager.GetSubrowExcelSheet<MJIStockyardManagementTable>();
+        foreach (var area in areas)
+        {
+            if (area.RowId == 0 || area.RareMaterial.RowId == 0) continue;
+            var d = new Destination
+            {
+                Id = (int)area.RowId,
+                Name = area.Area.ValueNullable?.Text.ExtractText() ?? $"Area {area.RowId}",
+                RarePouchId = area.RareMaterial.RowId,
+                RareName = PouchName(area.RareMaterial.RowId),
+                Unlocked = snap.DestinationsUnlockKnown ? config.UnlockedExpeditions.Contains((int)area.RowId) : snap.Rank >= 12 || area.RowId <= 5,
+            };
+            if (table.TryGetRow(area.RowId, out var rows))
+                foreach (var r in rows)
+                    if (r.Material.RowId != 0 && !d.CommonPouchIds.Contains(r.Material.RowId)) d.CommonPouchIds.Add(r.Material.RowId);
+            snap.Destinations.Add(d);
         }
     }
 

@@ -49,6 +49,12 @@ public class IslandSnapshot
 
     public List<PouchItem> Isleventory { get; set; } = [];
     public List<Expedition> Expeditions { get; set; } = [];
+
+    /// <summary>Granary expedition areas from the game data.</summary>
+    public List<Destination> Destinations { get; set; } = [];
+
+    /// <summary>True when the unlocked areas were read from the game (granary window opened at least once).</summary>
+    public bool DestinationsUnlockKnown { get; set; }
     public List<FarmPlot> FarmPlots { get; set; } = [];
     public List<Animal> Animals { get; set; } = [];
     public List<Favor> Favors { get; set; } = [];
@@ -191,4 +197,15 @@ public class AgendaEntry
     public int StartHour { get; set; }
     public int Hours { get; set; }
     public bool Efficient { get; set; }
+}
+
+[Serializable]
+public class Destination
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public uint RarePouchId { get; set; }
+    public string RareName { get; set; } = string.Empty;
+    public List<uint> CommonPouchIds { get; set; } = [];
+    public bool Unlocked { get; set; } = true;
 }

@@ -95,6 +95,7 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     public WeekPlan? Week { get; private set; }
+    public (List<GranaryAdvice> advice, List<RareStock> rares)? Granary { get; private set; }
     public Dictionary<uint, Forecast> Forecasts { get; private set; } = [];
     public bool Planning { get; private set; }
 
@@ -134,6 +135,7 @@ public sealed class Plugin : IDalamudPlugin
                 var week = new WeekPlanner(copy, options, gather, forecasts).Make();
                 Forecasts = forecasts;
                 Week = week;
+                Granary = GranaryAdvisor.Advise(copy, week);
             }
             catch (Exception ex)
             {
@@ -159,6 +161,8 @@ public sealed class Plugin : IDalamudPlugin
         foreach (var c in s.Crafts) sb.Append(c.SupplyLevel).Append(c.PopularityPercent);
         foreach (var p in s.Isleventory) sb.Append(p.Count).Append(',');
         foreach (var f in s.Favors) sb.Append(f.Delivered).Append(f.Scheduled);
+        foreach (var e in s.Expeditions) sb.Append(e.ExpeditionId).Append(e.DaysRemaining);
+        foreach (var d in s.Destinations) sb.Append(d.Unlocked ? 'y' : 'n');
         foreach (var season in s.SupplyHistory) sb.Append(season.Key).Append(season.Value.Count);
         return sb.ToString();
     }
