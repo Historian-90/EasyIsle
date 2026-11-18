@@ -3,7 +3,7 @@
     "Author": "CJ",
     "Name": "EasyIsle",
     "InternalName": "EasyIsle",
-    "AssemblyVersion": "0.9.1.0",
+    "AssemblyVersion": "0.10.0.0",
     "Punchline": "Island Sanctuary workshop planner that works from what your island actually has.",
     "Description": "Plans your Isleworks agenda around your real island: rank, workshops, isleventory, crops, animals, granary expeditions, Supply & Demand and Felicitous Favors.\n\nAdvice only: EasyIsle never sets anything for you. Everything is read locally from the game; nothing is sent anywhere.",
     "ApplicableVersion": "any",
@@ -17,9 +17,9 @@
     ],
     "DalamudApiLevel": 15,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/Historian-90/EasyIsle/releases/download/v0.9.1/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/Historian-90/EasyIsle/releases/download/v0.9.1/latest.zip",
-    "DownloadLinkTesting": "https://github.com/Historian-90/EasyIsle/releases/download/v0.9.1/latest.zip",
-    "LastUpdate": 1795036599
+    "DownloadLinkInstall": "https://github.com/Historian-90/EasyIsle/releases/download/v0.10.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/Historian-90/EasyIsle/releases/download/v0.10.0/latest.zip",
+    "DownloadLinkTesting": "https://github.com/Historian-90/EasyIsle/releases/download/v0.10.0/latest.zip",
+    "LastUpdate": 1795037415
   }
 ]
