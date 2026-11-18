@@ -427,6 +427,11 @@ public sealed unsafe class IslandReader
 
     }
 
+    /// <summary>
+    /// Feed recipes. Greenfeed takes "any produce" (2 for Island Greenfeed; 2 + 2 different kinds for
+    /// Premium), which the recipe data doesn't point at a single item, so such ingredients are kept as
+    /// "any produce" (PouchId 0).
+    /// </summary>
     private void ReadFeedRecipes(IslandSnapshot snap)
     {
         var byPouch = snap.Isleventory.ToDictionary(p => p.PouchId);
@@ -440,17 +445,43 @@ public sealed unsafe class IslandReader
                 Yield = Math.Max(1, (int)r.Yield),
                 Order = r.Order,
             };
+            var anyProduce = false;
             for (var i = 0; i < r.Material.Count; i++)
             {
-                var mat = r.Material[i].ValueNullable?.ItemPouch.RowId ?? 0;
                 var amount = i < r.Amount.Count ? r.Amount[i] : 0;
-                if (mat == 0 || amount == 0) continue;
-                recipe.Materials.Add(new Ingredient { PouchId = mat, Name = byPouch.TryGetValue(mat, out var m) ? m.Name : PouchName(mat), Amount = amount });
+                if (r.Material[i].RowId == 0 || amount == 0) continue;
+                var mat = r.Material[i].ValueNullable?.ItemPouch.RowId ?? 0;
+                if (mat == 0 || !byPouch.ContainsKey(mat))
+                {
+                    anyProduce = true;
+                    recipe.Materials.Add(new Ingredient { PouchId = 0, Name = "any produce", Amount = amount });
+                }
+                else
+                {
+                    recipe.Materials.Add(new Ingredient { PouchId = mat, Name = byPouch[mat].Name, Amount = amount });
+                }
             }
 
-            // Feed is the recipe family that's made from produce.
-            if (recipe.Materials.Any(m => byPouch.TryGetValue(m.PouchId, out var p) && p.IsProduce))
+            if (anyProduce || recipe.Materials.Any(m => byPouch.TryGetValue(m.PouchId, out var p) && p.IsProduce))
                 snap.FeedRecipes.Add(recipe);
+        }
+
+        // If the data didn't show them, fall back to the known greenfeed recipes (rows 62/63 in the
+        // isleventory: Island Greenfeed = 2 produce -> 3, Premium = 2 + 2 different produce -> 3).
+        if (snap.FeedRecipes.Count == 0)
+        {
+            foreach (var (row, amount, order) in new[] { (62u, 2, 1), (63u, 4, 2) })
+            {
+                if (!byPouch.TryGetValue(row, out var item)) continue;
+                snap.FeedRecipes.Add(new FeedRecipe
+                {
+                    OutputPouchId = row,
+                    OutputName = item.Name,
+                    Yield = 3,
+                    Order = order,
+                    Materials = [new Ingredient { PouchId = 0, Name = "any produce", Amount = amount }],
+                });
+            }
         }
     }
 

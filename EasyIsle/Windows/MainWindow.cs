@@ -251,6 +251,7 @@ public sealed class MainWindow : Window
             ImGui.TextUnformatted(empty == changes.Count
                 ? $"Plant {changes.Count} plot(s):"
                 : $"Plant or replant {changes.Count} plot(s) (if the gardener tends one, dismiss it first, then plant and entrust again):");
+            ImGui.TextColored(Muted, "Crops your workshops or feed will run short of get plots first; the rest go to whatever you have least of.");
             foreach (var c in changes)
             {
                 ImGui.TextUnformatted($"  Plot {c.Slot}:");
@@ -367,8 +368,7 @@ public sealed class MainWindow : Window
 
     private void DrawFeed(CropPlan plan, IslandSnapshot snap)
     {
-        ImGui.TextColored(Muted, $"Demand comes from this week's plan ({plan.CropsUsedByPlan} crop(s) used by your workshops) and your feed ({snap.FeedRecipes.Count} feed recipe(s) found). Crops with no demand are planted lowest stock first.");
-        ImGui.TextUnformatted($"Pasture: {plan.Animals} animal(s)");
+        ImGui.TextUnformatted($"Pasture: {plan.Animals} animal(s).");
         if (snap.FeedRecipes.Count == 0) return;
         ImGui.SameLine();
         ImGui.SetNextItemWidth(220);
@@ -392,7 +392,14 @@ public sealed class MainWindow : Window
         {
             var crafts = plan.FeedPerWeek / plan.Feed.Yield;
             var mats = string.Join(", ", plan.Feed.Materials.Select(m => $"{m.Amount * crafts:0} {m.Name}"));
-            ImGui.TextColored(Muted, $"About {plan.FeedPerWeek:0} {plan.Feed.OutputName} a week (one per animal per day) takes {mats}. The crop split above includes it.");
+            ImGui.TextColored(Muted, $"About {plan.FeedPerWeek:0} {plan.Feed.OutputName} a week (one per animal per day, {plan.Feed.Yield} per craft) takes {mats}.");
+            if (plan.AnyProducePerWeek > 0)
+            {
+                var weeks = plan.SpareProduce / plan.AnyProducePerWeek;
+                ImGui.TextColored(Muted, weeks >= 6
+                    ? $"Any produce works, and you have about {plan.SpareProduce:N0} spare (about {weeks:0} weeks of feed), so no plots are set aside for it. Make feed from whatever you have most of."
+                    : $"Spare produce covers only about {weeks:0.#} weeks of feed, so some plots grow extra for it (Feed / wk column).");
+            }
         }
     }
 

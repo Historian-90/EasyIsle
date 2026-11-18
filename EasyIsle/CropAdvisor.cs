@@ -12,7 +12,7 @@ public class CropNeed
     public int Stock { get; init; }
     public int Waiting { get; init; }
     public double WorkshopPerWeek { get; init; }
-    public double FeedPerWeek { get; init; }
+    public double FeedPerWeek { get; set; }
     public double PerWeek => WorkshopPerWeek + FeedPerWeek;
     public int PlotsNow { get; init; }
     public int PlotsRecommended { get; set; }
@@ -40,6 +40,12 @@ public class CropPlan
     public FeedRecipe? Feed { get; set; }
     public int Animals { get; set; }
     public double FeedPerWeek { get; set; }
+
+    /// <summary>Feed made from "any produce": how much produce of any kind it eats a week.</summary>
+    public double AnyProducePerWeek { get; set; }
+
+    /// <summary>Spare produce (beyond ~6 weeks of workshop use) available for "any produce" feed.</summary>
+    public int SpareProduce { get; set; }
 
     /// <summary>How many crops the week plan's workshops use (for the "why" line).</summary>
     public int CropsUsedByPlan { get; set; }
@@ -91,7 +97,11 @@ public static class CropAdvisor
             var feedStock = s.Isleventory.FirstOrDefault(p => p.PouchId == plan.Feed.OutputPouchId)?.Count ?? 0;
             var craftsPerWeek = plan.FeedPerWeek / plan.Feed.Yield;
             foreach (var m in plan.Feed.Materials)
-                feed[m.PouchId] = feed.GetValueOrDefault(m.PouchId) + m.Amount * craftsPerWeek;
+            {
+                if (m.PouchId == 0) plan.AnyProducePerWeek += m.Amount * craftsPerWeek;
+                else feed[m.PouchId] = feed.GetValueOrDefault(m.PouchId) + m.Amount * craftsPerWeek;
+            }
+
             if (feedStock < plan.FeedPerWeek)
                 plan.Alerts.Add($"{plan.Feed.OutputName}: {feedStock} left, the pasture uses about {plan.FeedPerWeek:N0} a week. Make more soon.");
         }
@@ -114,13 +124,24 @@ public static class CropAdvisor
             });
         }
 
+        // "Any produce" feed: eat into the crops with the most to spare. Only if spare produce runs
+        // short does it add demand, spread over the crops with the most seeds.
+        plan.SpareProduce = (int)plan.Needs.Sum(n => Math.Max(0, n.Stock + n.Waiting - TargetWeeks * n.PerWeek));
+        if (plan.AnyProducePerWeek > 0 && plan.SpareProduce < TargetWeeks * plan.AnyProducePerWeek)
+        {
+            var growers = plan.Needs.Where(n => n.Seeds > 0).OrderByDescending(n => n.Seeds).Take(4).ToList();
+            foreach (var g in growers) g.FeedPerWeek += plan.AnyProducePerWeek / growers.Count;
+        }
+
         // How many plots each crop needs: enough to keep up with its use, plus catching up to
         // TargetWeeks of stock over CatchUpWeeks.
         foreach (var n in plan.Needs)
         {
             var steady = n.PerWeek / PerPlotWeek;
             var catchUp = (TargetWeeks * n.PerWeek - n.Stock - n.Waiting) / (PerPlotWeek * CatchUpWeeks);
-            n.PlotsNeeded = n.PerWeek < 0.5 ? 0 : (int)Math.Ceiling(Math.Max(steady, catchUp) - 0.05);
+            // Plenty on hand (twice the target): no plots needed for now.
+            var plenty = n.Stock + n.Waiting >= 2 * TargetWeeks * n.PerWeek;
+            n.PlotsNeeded = n.PerWeek < 0.5 || plenty ? 0 : (int)Math.Ceiling(Math.Max(steady, catchUp) - 0.05);
         }
 
         // Start from what's planted, so healthy plots are left alone.
