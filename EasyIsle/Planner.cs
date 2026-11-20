@@ -23,7 +23,7 @@ public class PlannedCraft
     public int Count => Efficient ? 2 : 1;
 
     public int ValueEach { get; set; }
-    public int Total => ValueEach * Count;
+    public int Total => unchecked(ValueEach * Count);
 }
 
 public class WorkshopPlan
@@ -32,7 +32,7 @@ public class WorkshopPlan
     public int Level { get; init; }
     public List<PlannedCraft> Crafts { get; } = [];
     public int Hours => Crafts.Sum(c => c.Craft.Hours);
-    public int Total => Crafts.Sum(c => c.Total);
+    public int Total => (int)Math.Clamp(Crafts.Sum(c => (long)c.Total), int.MinValue, int.MaxValue);
 }
 
 public class Shortfall
@@ -55,7 +55,7 @@ public class Plan
 
     /// <summary>Crafts left out because the materials on hand can't cover them.</summary>
     public SortedSet<string> SkippedForMaterials { get; } = [];
-    public int Total => Workshops.Sum(w => w.Total);
+    public int Total => (int)Math.Clamp(Workshops.Sum(w => (long)w.Total), int.MinValue, int.MaxValue);
     public int GrooveAfter { get; set; }
 }
 
@@ -186,7 +186,17 @@ public static class Planner
     {
         var popularity = c.PopularityPercent > 0 ? c.PopularityPercent / 100.0 : 1.0;
         var inner = Math.Floor(c.Value * (1 + workshopLevel / 10.0) * (1 + groove / 100.0) + 1e-9);
-        return (int)Math.Floor(inner * popularity * supplyMultiplier + 1e-9);
+        return Checked(c, inner * popularity * supplyMultiplier, $"level {workshopLevel}, groove {groove}, popularity {c.PopularityPercent}%, supply x{supplyMultiplier}");
+    }
+
+    /// <summary>The last impossible craft value seen (for troubleshooting); such values count as 0.</summary>
+    public static string? LastAnomaly { get; set; }
+
+    private static int Checked(Craft c, double value, string inputs)
+    {
+        if (double.IsFinite(value) && value >= 0 && value < 100000) return (int)Math.Floor(value + 1e-9);
+        LastAnomaly = $"{c.Name}: value {value} from base {c.Value}, {inputs}";
+        return 0;
     }
 
     public static int ValueEach(Craft c, int workshopLevel, int groove)
@@ -194,7 +204,7 @@ public static class Planner
         var supply = c.SupplyLevel is >= 0 and < 5 ? SupplyMultiplier[c.SupplyLevel] : 1.0;
         var popularity = c.PopularityPercent > 0 ? c.PopularityPercent / 100.0 : 1.0;
         var inner = Math.Floor(c.Value * (1 + workshopLevel / 10.0) * (1 + groove / 100.0) + 1e-9);
-        return (int)Math.Floor(inner * popularity * supply + 1e-9);
+        return Checked(c, inner * popularity * supply, $"level {workshopLevel}, groove {groove}, popularity {c.PopularityPercent}%, supply level {c.SupplyLevel}");
     }
 
     private static Dictionary<uint, ulong> BuildThemeBits(List<Craft> crafts)

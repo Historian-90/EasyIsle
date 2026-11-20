@@ -69,18 +69,52 @@ public sealed class MainWindow : Window
         if (s == null && page != Page.Settings)
             Note("Nothing read yet. Head to your island and open this window there.");
         else
+            DrawPageSafely(s!);
+
+        ImGui.EndChild();
+    }
+
+    private string? pageError;
+
+    /// <summary>
+    /// Draws the current page; if it throws, the page shows the error (with a copy button and the
+    /// snapshot button) instead of the whole window turning into Dalamud's error box.
+    /// </summary>
+    private void DrawPageSafely(IslandSnapshot s)
+    {
+        try
+        {
             switch (page)
             {
                 case Page.Plan: DrawPlan(); break;
                 case Page.Cropland: DrawCropland(); break;
                 case Page.Pasture: DrawPasture(); break;
                 case Page.Granary: DrawGranaryAdvice(); break;
-                case Page.Find: DrawFind(s!); break;
-                case Page.Island: DrawIslandPage(s!); break;
+                case Page.Find: DrawFind(s); break;
+                case Page.Island: DrawIslandPage(s); break;
                 case Page.Settings: DrawSettings(); break;
             }
 
-        ImGui.EndChild();
+            pageError = null;
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, $"EasyIsle {page} page failed");
+            pageError = ex.ToString();
+        }
+
+        if (pageError == null) return;
+        ImGui.Spacing();
+        Colored(Bad, $"Something went wrong drawing the {page} page.");
+        if (ImGui.Button("Copy error")) ImGui.SetClipboardText(pageError);
+        ImGui.SameLine();
+        if (ImGui.Button("Copy snapshot"))
+        {
+            ImGui.SetClipboardText(plugin.SnapshotJson());
+            status = "Snapshot copied to the clipboard.";
+        }
+
+        Note(pageError);
     }
 
     private void RailButton(Page target, FontAwesomeIcon icon, string tooltip)

@@ -8,7 +8,7 @@ public class DayPlan
 {
     public int Cycle { get; init; }
     public List<WorkshopPlan> Workshops { get; } = [];
-    public int Total => Workshops.Sum(w => w.Total);
+    public int Total => (int)Math.Clamp(Workshops.Sum(w => (long)w.Total), int.MinValue, int.MaxValue);
 }
 
 public class WeekPlan
@@ -18,7 +18,7 @@ public class WeekPlan
     public List<string> Notes { get; } = [];
     public List<string> FavorItemsBoosted { get; } = [];
     public SortedSet<string> SkippedForMaterials { get; } = [];
-    public int Total => Days.Sum(d => d.Total);
+    public int Total => (int)Math.Clamp(Days.Sum(d => (long)d.Total), int.MinValue, int.MaxValue);
     public int GrooveAfter { get; set; }
 
     /// <summary>Materials the whole plan uses (MJIItemPouch row -> amount).</summary>
