@@ -33,11 +33,14 @@ public sealed unsafe class IslandReader
         snap.Rank = island->CurrentRank;
         snap.Xp = island->CurrentXP;
         snap.Groove = mgr->CurrentGroove;
+        snap.GrooveSource = "game memory";
+        snap.RawManagerTail = Convert.ToHexString(new ReadOnlySpan<byte>((byte*)mgr + 0x3A0, 0xA0));
         for (var i = 0; i < island->LandmarkIds.Length; i++)
             if (island->LandmarkIds[i] != 0 && island->LandmarkUnderConstruction[i] == 0) snap.LandmarksBuilt++;
         snap.GrooveMax = snap.LandmarksBuilt switch { 0 => 10, 1 => 15, 2 => 20, 3 => 25, 4 => 35, _ => 45 };
         snap.CycleDay = mgr->CurrentCycleDay;
         foreach (var d in mgr->CraftworksRestDays) snap.RestDays.Add(d);
+        ReadGroove(snap);
         snap.DemandValid = !mgr->DemandDirty;
         snap.PopularityRow = mgr->CurrentPopularity;
         snap.NextPopularityRow = mgr->NextPopularity;
@@ -666,6 +669,62 @@ public sealed unsafe class IslandReader
                 Shipped = favors->Shipped(i),
                 Bonus = favors->Bonus(i),
             });
+        }
+    }
+
+    /// <summary>
+    /// Groove: MJIManager.CurrentGroove reads 0 on CJ's island (agenda showed 15/45), so the agenda's
+    /// own number is used whenever the agenda is open, and remembered for the rest of the season.
+    /// For planning, the efficient crafts still to start today are added on top.
+    /// </summary>
+    private void ReadGroove(IslandSnapshot snap)
+    {
+        var season = SeasonStartUtc(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        var agent = AgentMJICraftSchedule.Instance();
+        if (agent != null && agent->Data != null && agent->IsAgentActive() && agent->Data->CycleInProgress == snap.CycleDay)
+        {
+            var data = agent->Data;
+            var reading = new GrooveReading { Season = season, CycleDay = snap.CycleDay, Groove = data->Groove };
+            if (data->CycleDisplayed == data->CycleInProgress)
+            {
+                foreach (var ws in data->WorkshopSchedules)
+                    for (var i = 0; i < ws.NumScheduleEntries && i < ws.EntryData.Length; i++)
+                        if (ws.EntryData[i].Efficient && !ws.EntryData[i].Started) reading.PendingToday++;
+            }
+            else if (config.LastGroove is { } old && old.Season == season && old.CycleDay == snap.CycleDay)
+            {
+                reading.PendingToday = old.PendingToday;
+            }
+
+            if (config.LastGroove == null || config.LastGroove.Groove != reading.Groove || config.LastGroove.CycleDay != reading.CycleDay
+                || config.LastGroove.PendingToday != reading.PendingToday || config.LastGroove.Season != season)
+            {
+                config.LastGroove = reading;
+                config.Save();
+            }
+        }
+
+        if (config.LastGroove is { } g && g.Season == season && g.CycleDay <= snap.CycleDay)
+        {
+            if (g.CycleDay == snap.CycleDay)
+            {
+                snap.Groove = g.Groove;
+                snap.GrooveSource = "Isleworks agenda";
+                snap.GrooveNextCycle = (uint)Math.Min(snap.GrooveMax, g.Groove + g.PendingToday);
+            }
+            else
+            {
+                // An earlier cycle's reading: its remaining efficient crafts have run since.
+                snap.Groove = (uint)Math.Min(snap.GrooveMax, g.Groove + g.PendingToday);
+                snap.GrooveSource = "Isleworks agenda on an earlier cycle (open the agenda to update)";
+                snap.GrooveNextCycle = snap.Groove;
+            }
+        }
+        else
+        {
+            snap.GrooveSource = "not read yet: open the Isleworks agenda once";
+            snap.Problems.Add("Open the Isleworks agenda once so EasyIsle can read your groove.");
+            snap.GrooveNextCycle = snap.Groove;
         }
     }
 

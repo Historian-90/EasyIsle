@@ -143,7 +143,11 @@ public sealed class MainWindow : Window
         else if (!s.OnIsland)
             ImGui.TextColored(Muted, $"Rank {s.Rank}  ·  not on your island (showing the last reading)");
         else
+        {
             ImGui.TextColored(Good, $"Rank {s.Rank}  ·  Cycle {s.CycleDay + 1} ({DayName(s.CycleDay)})  ·  Groove {s.Groove}/{s.GrooveMax}");
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip($"Groove from: {s.GrooveSource}.\nExpected when the next cycle starts: {s.GrooveNextCycle}/{s.GrooveMax}.");
+        }
 
         if (s != null && s.Problems.Count > 0)
         {
@@ -318,7 +322,7 @@ public sealed class MainWindow : Window
         Section("Island");
         Row("On the island", s.OnIsland ? "yes" : "no");
         Row("Island rank", $"{s.Rank} ({s.Xp:N0} xp)");
-        Row("Groove", $"{s.Groove} / {s.GrooveMax}");
+        Row("Groove", $"{s.Groove} / {s.GrooveMax} (from {s.GrooveSource}); next cycle starts at about {s.GrooveNextCycle}");
         Row("Cycle day", $"{s.CycleDay + 1} of 7 ({DayName(s.CycleDay)})");
         Row("Rest days", s.RestDays.Count == 0 ? "not loaded" : string.Join(", ", s.RestDays.Select(d => d < 7 ? $"{DayName(d)} (this week)" : $"{DayName(d - 7)} (next week)")));
         Row("Supply & Demand", s.DemandValid ? $"loaded (popularity set {s.PopularityRow}, next {s.NextPopularityRow})" : "not loaded");
@@ -387,7 +391,7 @@ public sealed class MainWindow : Window
         Section("This week",
             "The plan stays put for today and is re-planned once a day with the new Supply & Demand reading.\n\n" +
             $"Peaks: {plan.PeaksKnown} known, {plan.PeaksPartly} narrowed down, {plan.PeaksUnknown} unknown. Open the Isleworks agenda once each cycle to sharpen the forecast.");
-        Colored(Good, $"About {plan.Total:N0} cowries over {range}. Groove {plugin.Snapshot?.Groove} > {plan.GrooveAfter}.");
+        Colored(Good, $"About {plan.Total:N0} cowries over {range}. Groove {plugin.Snapshot?.GrooveNextCycle} > {plan.GrooveAfter}.");
         if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Redo, "Re-plan now")) plugin.NewWeekPlan();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Throw away today's plan and work out a fresh one.");
         if (plan.RestAdvice != null) Colored(Warn, plan.RestAdvice);

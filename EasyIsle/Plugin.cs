@@ -311,7 +311,7 @@ public sealed class Plugin : IDalamudPlugin
     private string Signature(IslandSnapshot s)
     {
         var sb = new System.Text.StringBuilder();
-        sb.Append(s.DemandValid).Append('|').Append(s.CycleDay).Append('|').Append(s.Groove).Append('|').Append(s.Rank).Append('|');
+        sb.Append(s.DemandValid).Append('|').Append(s.CycleDay).Append('|').Append(s.Groove).Append('|').Append(s.GrooveNextCycle).Append('|').Append(s.Rank).Append('|');
         sb.Append(string.Join(",", s.RestDays)).Append('|').Append(Configuration.AllowGathering).Append(Configuration.PrioritizeFavors).Append('|');
         foreach (var w in s.Workshops) sb.Append(w.Level).Append(w.UnderConstruction ? 'u' : 'b');
         foreach (var c in s.Crafts) sb.Append(c.SupplyLevel).Append(c.PopularityPercent);

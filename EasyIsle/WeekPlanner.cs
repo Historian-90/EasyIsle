@@ -256,7 +256,7 @@ public sealed class WeekPlanner
     {
         var cycle = cycles[d];
         var level = workshopLevels[w];
-        var groove = (int)s.Groove;
+        var groove = (int)Math.Max(s.Groove, s.GrooveNextCycle);
 
         // Items exported before this cycle, plus by other workshops on this cycle.
         var earlier = new Dictionary<uint, int>();
@@ -375,7 +375,7 @@ public sealed class WeekPlanner
     {
         var perDay = new double[cycles.Count];
         var exported = new Dictionary<uint, int>();
-        var groove = (int)s.Groove;
+        var groove = (int)Math.Max(s.Groove, s.GrooveNextCycle);
         var all = new List<Export>();
         var used = new Dictionary<uint, int>();
         var favorMade = new Dictionary<uint, int>();

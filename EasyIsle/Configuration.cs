@@ -38,6 +38,9 @@ public class Configuration : IPluginConfiguration
     /// <summary>Keep reading the island every few seconds while the window is open.</summary>
     public bool AutoRefresh { get; set; } = true;
 
+    /// <summary>The groove as the Isleworks agenda last showed it (the manager's own field reads wrong).</summary>
+    public GrooveReading? LastGroove { get; set; }
+
     /// <summary>Today's week plan, kept so it doesn't change under you.</summary>
     public WeekLock? WeekLock { get; set; }
 
@@ -52,4 +55,15 @@ public class Configuration : IPluginConfiguration
     public bool PrioritizeFavors { get; set; }
 
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
+}
+
+[Serializable]
+public class GrooveReading
+{
+    public string Season { get; set; } = string.Empty;
+    public int CycleDay { get; set; }
+    public uint Groove { get; set; }
+
+    /// <summary>Efficient crafts on that cycle's agenda that hadn't started yet.</summary>
+    public int PendingToday { get; set; }
 }

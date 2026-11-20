@@ -18,6 +18,15 @@ public class IslandSnapshot
     public uint Xp { get; set; }
     public uint Groove { get; set; }
 
+    /// <summary>Groove expected when the next cycle starts (today's efficient crafts still to come added).</summary>
+    public uint GrooveNextCycle { get; set; }
+
+    /// <summary>Where the groove reading came from.</summary>
+    public string GrooveSource { get; set; } = string.Empty;
+
+    /// <summary>MJIManager bytes 0x3A0-0x440, for checking the groove offset.</summary>
+    public string RawManagerTail { get; set; } = string.Empty;
+
     /// <summary>Groove cap from built landmarks (15/20/25/35/45).</summary>
     public int GrooveMax { get; set; }
 
