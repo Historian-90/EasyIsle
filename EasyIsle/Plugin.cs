@@ -244,6 +244,11 @@ public sealed class Plugin : IDalamudPlugin
                 var forecasts = WeekPlanner.Forecasts(copy);
                 var savedOk = savedWeek != null && savedWeek.Season == season && savedWeek.CycleDay == copy.CycleDay && savedWeek.Options == optionKey;
                 var week = new WeekPlanner(copy, options, gather, forecasts) { Saved = savedOk ? savedWeek : null }.Make();
+                if (options.PrioritizeFavors && week.Days.Count > 0)
+                {
+                    var plain = new PlanOptions { AllowGathering = options.AllowGathering, PrioritizeFavors = false };
+                    week.CowriesWithoutFavors = new WeekPlanner(copy, plain, gather, forecasts).Make().Total;
+                }
                 if (Planner.LastAnomaly is { } odd)
                 {
                     Log.Warning($"Impossible craft value, counted as 0: {odd}");

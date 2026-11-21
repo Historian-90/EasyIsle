@@ -17,6 +17,9 @@ public class WeekPlan
     public List<Shortfall> Shortfalls { get; } = [];
     public List<string> Notes { get; } = [];
     public List<string> FavorItemsBoosted { get; } = [];
+
+    /// <summary>With favors prioritized: cowries the same days would earn without that (null = not worked out).</summary>
+    public int? CowriesWithoutFavors { get; set; }
     public SortedSet<string> SkippedForMaterials { get; } = [];
     public int Total => (int)Math.Clamp(Days.Sum(d => (long)d.Total), int.MinValue, int.MaxValue);
     public int GrooveAfter { get; set; }
@@ -248,7 +251,73 @@ public sealed class WeekPlanner
             if (!improved && pass > 0) break;
         }
 
+        // Changing one workshop at a time gets stuck: putting the best chain on a second or third
+        // workshop often only pays once the others follow. So also try copying each day's chains
+        // onto any set of that day's workshops, then polish again (worth ~4% on CJ's 11/20 week).
+        while (TryCopies(cycles, chains, ref score)) Descend(cycles, chains, ref score);
+
         return chains;
+    }
+
+    private bool TryCopies(List<int> cycles, List<uint>[][] chains, ref double score)
+    {
+        var found = false;
+        for (var d = 0; d < cycles.Count; d++)
+        {
+            var sources = chains[d].Select(c => c.ToList()).ToList();
+            foreach (var src in sources)
+            {
+                for (var mask = 1; mask < (1 << chains[d].Length); mask++)
+                {
+                    var before = chains[d].ToArray();
+                    for (var w = 0; w < chains[d].Length; w++)
+                        if ((mask & (1 << w)) != 0) chains[d][w] = src.ToList();
+                    var v = Evaluate(cycles, chains, out _).total;
+                    if (v > score + 0.5)
+                    {
+                        score = v;
+                        found = true;
+                    }
+                    else
+                    {
+                        chains[d] = before;
+                    }
+                }
+            }
+        }
+
+        return found;
+    }
+
+    private void Descend(List<int> cycles, List<uint>[][] chains, ref double score)
+    {
+        for (var pass = 0; pass < Passes; pass++)
+        {
+            var improved = false;
+            for (var d = 0; d < cycles.Count; d++)
+            {
+                for (var w = 0; w < workshopLevels.Count; w++)
+                {
+                    var current = chains[d][w];
+                    foreach (var option in CandidateChains(cycles, chains, d, w))
+                    {
+                        if (option.SequenceEqual(current)) continue;
+                        chains[d][w] = option;
+                        var v = Evaluate(cycles, chains, out _).total;
+                        if (v > score + 0.5)
+                        {
+                            score = v;
+                            current = option;
+                            improved = true;
+                        }
+                    }
+
+                    chains[d][w] = current;
+                }
+            }
+
+            if (!improved) break;
+        }
     }
 
     /// <summary>Best chains for one workshop-day, priced with the supply the rest of the plan leaves.</summary>

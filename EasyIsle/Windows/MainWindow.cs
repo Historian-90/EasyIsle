@@ -396,6 +396,8 @@ public sealed class MainWindow : Window
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Throw away today's plan and work out a fresh one.");
         if (plan.RestAdvice != null) Colored(Warn, plan.RestAdvice);
         if (plan.FavorItemsBoosted.Count > 0) Note("Felicitous Favors: " + string.Join(", ", plan.FavorItemsBoosted));
+        if (plan.CowriesWithoutFavors is { } plainTotal && plainTotal - plan.Total > 50)
+            Colored(Warn, $"Prioritizing Felicitous Favors costs about {plainTotal - plan.Total:N0} cowries over these cycles (about {plainTotal:N0} without).");
 
         for (var i = 0; i < plan.Days.Count; i++)
         {
